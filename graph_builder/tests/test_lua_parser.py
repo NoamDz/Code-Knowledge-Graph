@@ -50,7 +50,7 @@ def test_module_M():
 
 def test_module_m():
     """Test lowercase m module pattern."""
-    ast = parse_lua_file(str(FIXTURES / "module_m.lua"))
+    ast = parse_lua_file(str(FIXTURES / "module_lowercase_m.lua"))
 
     assert ast.module_info.pattern_type == ModulePatternType.LOWERCASE_M
     assert ast.module_info.table_var_name == "m"

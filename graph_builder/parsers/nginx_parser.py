@@ -125,6 +125,13 @@ def parse_nginx_conf(conf_path: str) -> NginxConfig:
     content = Path(conf_path).read_text()
     config = NginxConfig()
 
+    _parse_single_file(content, config)
+
+    return config
+
+
+def _parse_single_file(content: str, config: NginxConfig):
+    """Parse a single nginx config file's content into the config object."""
     # lua_package_path
     for m in RE_LUA_PKG_PATH.finditer(content):
         paths = [p.strip() for p in m.group(1).split(";") if p.strip() and p.strip() != ";"]
@@ -149,6 +156,85 @@ def parse_nginx_conf(conf_path: str) -> NginxConfig:
     # Process location blocks and their Lua directives
     _parse_locations_and_phases(content, config)
 
+
+def parse_nginx_conf_recursive(conf_path: str, base_path: str | None = None) -> NginxConfig:
+    """Parse an nginx.conf and recursively follow all include directives.
+
+    Args:
+        conf_path: Path to the main nginx.conf file.
+        base_path: Optional prefix for resolving container-absolute include paths.
+                   E.g., if includes say '/data/app/conf.d/*.conf' and the files
+                   are at '<repo_root>/conf.d/*.conf', set base_path to the repo root
+                   so '/data/app/' is stripped and resolved relative to base_path.
+    """
+    conf_path = str(Path(conf_path).resolve())
+    config = NginxConfig()
+    visited: set[str] = set()
+
+    def _resolve_include_path(include_pattern: str, parent_dir: str) -> list[Path]:
+        """Resolve an include pattern to actual file paths."""
+        p = Path(include_pattern)
+
+        # If absolute path, try as-is first, then try relative to base_path
+        if p.is_absolute():
+            # Try the literal path (works when running inside the container)
+            matches = list(Path("/").glob(str(p).lstrip("/")))
+            if matches:
+                return sorted(matches)
+
+            # Try remapping: strip the container prefix and search under base_path or parent_dir
+            if base_path:
+                # Try progressively shorter prefixes of the absolute path
+                parts = p.parts[1:]  # strip root
+                for i in range(len(parts)):
+                    candidate = Path(base_path) / Path(*parts[i:])
+                    if "*" in str(candidate) or "?" in str(candidate):
+                        matches = list(candidate.parent.glob(candidate.name))
+                        if matches:
+                            return sorted(matches)
+                    elif candidate.exists():
+                        return [candidate]
+
+            # Last resort: try relative to parent dir
+            relative = Path(parent_dir) / p.name
+            if relative.exists():
+                return [relative]
+            return []
+
+        # Relative path — resolve relative to the including file's directory
+        resolved = Path(parent_dir) / include_pattern
+        if "*" in include_pattern or "?" in include_pattern:
+            return sorted(resolved.parent.glob(resolved.name))
+        elif resolved.exists():
+            return [resolved]
+        return []
+
+    def _parse_recursive(file_path: str):
+        resolved = str(Path(file_path).resolve())
+        if resolved in visited:
+            return
+        visited.add(resolved)
+
+        try:
+            content = Path(resolved).read_text()
+        except (OSError, IOError) as e:
+            config.warnings.append(f"Could not read included file {file_path}: {e}")
+            return
+
+        # Parse this file into the shared config
+        _parse_single_file(content, config)
+
+        # Follow includes found in this file — they were appended to config.include_files
+        # Snapshot includes so far to process only new ones
+        parent_dir = str(Path(resolved).parent)
+        includes_to_follow = list(config.include_files)  # copy current list
+
+        for inc_pattern in includes_to_follow:
+            inc_files = _resolve_include_path(inc_pattern, parent_dir)
+            for inc_file in inc_files:
+                _parse_recursive(str(inc_file))
+
+    _parse_recursive(conf_path)
     return config
 
 

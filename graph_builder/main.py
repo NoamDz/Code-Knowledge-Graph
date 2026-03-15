@@ -23,7 +23,7 @@ from .parsers.lua_parser import parse_lua_file
 from .parsers.python_parser import parse_python_file
 from .parsers.ruby_parser import parse_ruby_file
 from .parsers.js_parser import parse_js_file
-from .parsers.nginx_parser import parse_nginx_conf
+from .parsers.nginx_parser import parse_nginx_conf, parse_nginx_conf_recursive
 from .parsers.base import FileAST
 from .resolvers.lua_resolver import LuaResolver
 from .resolvers.call_resolver import CallResolver
@@ -72,20 +72,34 @@ def _parse_all_files(config: Config) -> dict[str, FileAST]:
     return all_asts
 
 
-def _build_resolvers(config: Config) -> dict[str, LuaResolver]:
+def _build_resolvers(config: Config) -> dict:
     """Build language-specific resolvers."""
     resolvers = {}
 
-    # Parse nginx.conf for lua_package_path
-    package_paths = []
+    # Collect Lua package paths from all sources
+    package_paths = list(config.lua_package_paths)  # from config.yml
+
+    # Also parse nginx.conf for lua_package_path
     if config.nginx_conf and Path(config.nginx_conf).exists():
         try:
-            nginx_config = parse_nginx_conf(config.nginx_conf)
-            package_paths = nginx_config.lua_package_path
+            nginx_config = parse_nginx_conf_recursive(
+                config.nginx_conf, config.nginx_base_path,
+            )
+            for p in nginx_config.lua_package_path:
+                if p not in package_paths:
+                    package_paths.append(p)
         except Exception as e:
             click.echo(f"Warning: Failed to parse nginx.conf: {e}", err=True)
 
+    if package_paths:
+        click.echo(f"  Lua package paths: {len(package_paths)} templates")
+
     resolvers["lua"] = LuaResolver(package_paths, config.repo_root)
+
+    # Python resolver
+    from .resolvers.python_resolver import PythonResolver
+    resolvers["python"] = PythonResolver(config.repo_root)
+
     return resolvers
 
 
@@ -123,6 +137,8 @@ def build(ctx):
     lua_resolver = resolvers.get("lua")
     resolved_imports: dict[str, dict[str, str | None]] = {}
 
+    python_resolver = resolvers.get("python")
+
     for file_path, ast in all_asts.items():
         file_resolved = {}
         for imp in ast.imports:
@@ -130,8 +146,12 @@ def build(ctx):
                 continue
             if ast.language == "lua" and lua_resolver:
                 file_resolved[imp.module_string] = lua_resolver.resolve(imp.module_string)
+            elif ast.language == "python" and python_resolver:
+                file_resolved[imp.module_string] = python_resolver.resolve(
+                    imp.module_string, file_path,
+                )
             else:
-                file_resolved[imp.module_string] = None  # other resolvers TBD
+                file_resolved[imp.module_string] = None
         resolved_imports[file_path] = file_resolved
 
     # Step 4: Run cross-file call resolution
@@ -161,7 +181,9 @@ def build(ctx):
 
         # Ingest nginx endpoints
         if config.nginx_conf and Path(config.nginx_conf).exists():
-            nginx_config = parse_nginx_conf(config.nginx_conf)
+            nginx_config = parse_nginx_conf_recursive(
+                config.nginx_conf, config.nginx_base_path,
+            )
             for loc in nginx_config.locations:
                 for phase in loc.phases:
                     writer.upsert_nginx_endpoint(

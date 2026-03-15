@@ -113,6 +113,24 @@ def spot_check(file_path: str) -> str:
         for sd in ast.shared_dict_accesses:
             lines.append(f"  {sd.operation}: ngx.shared.{sd.dict_name} in {sd.function}  (line {sd.line})")
 
+    # Internal redirects
+    if ast.internal_redirects:
+        lines.append(f"\nINTERNAL REDIRECTS ({len(ast.internal_redirects)}):")
+        for redir in ast.internal_redirects:
+            lines.append(f"  {redir.redirect_type}: {redir.target_path} in {redir.function}  (line {redir.line})")
+
+    # Redis accesses
+    if ast.redis_accesses:
+        lines.append(f"\nREDIS ACCESSES ({len(ast.redis_accesses)}):")
+        for ra in ast.redis_accesses:
+            lines.append(f"  {ra.access_type}: redis.{ra.operation}(\"{ra.key_name}\") in {ra.function}  (line {ra.line})")
+
+    # HTTP calls
+    if ast.http_calls:
+        lines.append(f"\nHTTP CALLS ({len(ast.http_calls)}):")
+        for hc in ast.http_calls:
+            lines.append(f"  {hc.method} {hc.url_or_path} in {hc.function}  (line {hc.line})")
+
     # Warnings
     if ast.warnings:
         lines.append(f"\nWARNINGS ({len(ast.warnings)}):")

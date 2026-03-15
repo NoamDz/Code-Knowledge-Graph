@@ -90,11 +90,29 @@ def find_impacted_files(file_path: str, max_depth: int = 5) -> str:
 @mcp.tool()
 def get_implicit_dependencies(file_path: str) -> str:
     """Returns implicit dependencies for a Lua file: ngx.ctx fields
-    read/written, ngx.shared dicts accessed, and other files that
-    touch the same ctx fields or shared dicts.
+    read/written, ngx.shared dicts accessed, Redis keys, HTTP calls,
+    and other files that touch the same coupling points.
     These are dependencies that don't show up in require/import statements.
     """
     return impact.get_implicit_dependencies(_get_engine(), file_path)
+
+
+@mcp.tool()
+def get_redis_coupling(key_pattern: str) -> str:
+    """Find all functions across the codebase that read or write a Redis key
+    matching the given pattern. Shows cross-service data flow through Redis.
+    Example: get_redis_coupling('user:flags')
+    """
+    return impact.get_redis_coupling(_get_engine(), key_pattern)
+
+
+@mcp.tool()
+def trace_cross_service_flow(endpoint: str) -> str:
+    """Trace cross-service data flow for an endpoint: internal reroutes
+    (ngx.exec, ngx.location.capture) and HTTP calls between services.
+    Example: trace_cross_service_flow('/api/process')
+    """
+    return impact.trace_cross_service_flow(_get_engine(), endpoint)
 
 
 # --- Search tools ---

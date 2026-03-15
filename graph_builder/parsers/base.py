@@ -83,6 +83,34 @@ class SharedDictAccess:
 
 
 @dataclass
+class InternalRedirect:
+    """An ngx.exec() or ngx.location.capture() call (OpenResty internal routing)."""
+    target_path: str              # e.g., "/internal/process"
+    redirect_type: str            # "exec", "capture", "capture_multi"
+    function: str                 # which function does this
+    line: int
+
+
+@dataclass
+class RedisKeyAccess:
+    """A Redis key read or write."""
+    key_name: str                 # e.g., "user:flags:active" (or pattern if not literal)
+    operation: str                # "get", "set", "hget", "hset", "publish", "subscribe", etc.
+    access_type: str              # "read" or "write"
+    function: str                 # which function does this
+    line: int
+
+
+@dataclass
+class HttpCallRef:
+    """An HTTP client call to another service."""
+    url_or_path: str              # the URL/path string (when it's a literal)
+    method: str                   # "GET", "POST", etc. or "unknown"
+    function: str                 # which function does this
+    line: int
+
+
+@dataclass
 class ClassDef:
     """A class definition."""
     name: str
@@ -121,6 +149,11 @@ class FileAST:
     # OpenResty-specific
     ctx_accesses: list[ContextAccess] = field(default_factory=list)
     shared_dict_accesses: list[SharedDictAccess] = field(default_factory=list)
+    internal_redirects: list[InternalRedirect] = field(default_factory=list)
+
+    # Cross-service communication
+    redis_accesses: list[RedisKeyAccess] = field(default_factory=list)
+    http_calls: list[HttpCallRef] = field(default_factory=list)
 
     # Diagnostics
     warnings: list[str] = field(default_factory=list)
@@ -142,6 +175,9 @@ class FileAST:
             "exports": len(self.exports),
             "ctx_accesses": len(self.ctx_accesses),
             "shared_dict_accesses": len(self.shared_dict_accesses),
+            "internal_redirects": len(self.internal_redirects),
+            "redis_accesses": len(self.redis_accesses),
+            "http_calls": len(self.http_calls),
             "warnings": self.warnings,
             "returned_value_kind": self.module_info.returned_value_kind if self.module_info else None,
             "returned_value_callee": self.module_info.returned_value_callee if self.module_info else None,

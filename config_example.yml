@@ -20,6 +20,13 @@ nginx_conf: /data/kashmir/pinpoint/shared/nginx/config/nginx_pinpoint.conf
 # --------------------------------------------------------------------------
 # nginx_conf: ./extracted_nginx.conf
 
+# Base path for resolving nginx include directives.
+# If your nginx.conf uses absolute container paths like:
+#   include /data/app/nginx/conf.d/*.conf;
+# Set this to the local path that corresponds to the container root.
+# The parser will try to resolve includes relative to this path.
+# nginx_base_path: /Users/il021250/dev/pinpoint/src
+
 # Lua package paths — set these manually since nginx.conf isn't available.
 # These tell the resolver how require("resty.auth") maps to files.
 # Look at the generation script to find the lua_package_path value.

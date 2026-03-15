@@ -17,6 +17,8 @@ INDEX_STATEMENTS = [
     "CREATE INDEX ON :NginxPhase(phase_type);",
     "CREATE INDEX ON :ContextKey(name);",
     "CREATE INDEX ON :SharedDict(name);",
+    "CREATE INDEX ON :RedisKey(name);",
+    "CREATE INDEX ON :SharedFile(path);",
 ]
 
 # Node labels and their key properties
@@ -29,6 +31,8 @@ NODE_TYPES = {
     "NginxPhase": ["phase_type", "endpoint", "lua_file", "is_inline"],
     "ContextKey": ["name"],
     "SharedDict": ["name"],
+    "RedisKey": ["name"],
+    "SharedFile": ["path"],
 }
 
 # Edge types and their properties
@@ -45,6 +49,10 @@ EDGE_TYPES = {
     "CTX_WRITES": ["function", "line"],
     "CTX_READS": ["function", "line"],
     "USES_SHARED": ["operation", "function", "line"],
+    "REROUTES_TO": ["redirect_type", "line"],
+    "REDIS_READS": ["operation", "line"],
+    "REDIS_WRITES": ["operation", "line"],
+    "HTTP_CALLS": ["method", "line"],
 }
 
 

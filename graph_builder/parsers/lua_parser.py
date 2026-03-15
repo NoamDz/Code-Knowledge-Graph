@@ -23,6 +23,7 @@ import tree_sitter_lua as tslua
 from .base import (
     FileAST, FunctionDef, ImportRef, CallRef, ModuleInfo,
     ModulePatternType, ContextAccess, SharedDictAccess,
+    InternalRedirect, RedisKeyAccess, HttpCallRef,
 )
 
 LUA = Language(tslua.language())
@@ -554,6 +555,279 @@ def _extract_shared_dict_accesses(root, source: bytes, ast: FileAST):
 
 
 # ---------------------------------------------------------------------------
+# Internal redirect tracking (ngx.exec, ngx.location.capture)
+# ---------------------------------------------------------------------------
+
+_REDIRECT_PATTERNS = {
+    "ngx.exec": "exec",
+    "ngx.location.capture": "capture",
+    "ngx.location.capture_multi": "capture_multi",
+}
+
+
+def _extract_internal_redirects(root, source: bytes, ast: FileAST):
+    """Extract ngx.exec() and ngx.location.capture() calls as internal redirects."""
+    for call_node in _walk_all(root, "function_call"):
+        name_node = call_node.child_by_field_name("name")
+        if not name_node:
+            continue
+        callee_text = _text(name_node, source)
+
+        redirect_type = _REDIRECT_PATTERNS.get(callee_text)
+        if not redirect_type:
+            continue
+
+        args = _first_child_of_type(call_node, "arguments")
+        if not args or args.named_child_count == 0:
+            continue
+
+        line = call_node.start_point[0] + 1
+        enclosing = _find_enclosing_function(call_node, source)
+
+        if redirect_type == "capture_multi":
+            # ngx.location.capture_multi({{"/a"}, {"/b"}})
+            # First arg is a table of tables, each containing a path string
+            # AST: table_constructor > field > table_constructor > field > string
+            first_arg = args.named_children[0]
+            if first_arg.type == "table_constructor":
+                for entry in first_arg.named_children:
+                    # Each entry may be a field wrapping a table_constructor
+                    inner = entry
+                    if inner.type == "field":
+                        inner = _first_child_of_type(inner, "table_constructor")
+                    if inner and inner.type == "table_constructor" and inner.named_child_count > 0:
+                        # The first element of the inner table is the path
+                        first_elem = inner.named_children[0]
+                        # May be wrapped in a field node
+                        if first_elem.type == "field":
+                            first_elem = first_elem.named_children[0] if first_elem.named_child_count > 0 else first_elem
+                        if first_elem.type == "string":
+                            target = _get_string_value(first_elem, source)
+                            ast.internal_redirects.append(InternalRedirect(
+                                target_path=target,
+                                redirect_type=redirect_type,
+                                function=enclosing,
+                                line=line,
+                            ))
+        else:
+            # ngx.exec(path) or ngx.location.capture(path)
+            first_arg = args.named_children[0]
+            if first_arg.type == "string":
+                target = _get_string_value(first_arg, source)
+                ast.internal_redirects.append(InternalRedirect(
+                    target_path=target,
+                    redirect_type=redirect_type,
+                    function=enclosing,
+                    line=line,
+                ))
+
+
+# ---------------------------------------------------------------------------
+# Redis key tracking
+# ---------------------------------------------------------------------------
+
+# Operations and their read/write classification
+_REDIS_READ_OPS = {"get", "hget", "hgetall", "hmget", "lrange", "smembers",
+                   "sismember", "zrange", "zrangebyscore", "exists", "ttl",
+                   "type", "keys", "mget", "llen", "scard", "zcard"}
+_REDIS_WRITE_OPS = {"set", "hset", "hmset", "del", "delete", "lpush", "rpush",
+                    "sadd", "srem", "zadd", "zrem", "incr", "decr", "incrby",
+                    "decrby", "setex", "expire", "mset", "append"}
+_REDIS_PUBSUB_READ = {"subscribe", "psubscribe"}
+_REDIS_PUBSUB_WRITE = {"publish"}
+
+
+def _classify_redis_op(operation: str) -> str:
+    """Classify a Redis operation as read or write."""
+    op_lower = operation.lower()
+    if op_lower in _REDIS_READ_OPS or op_lower in _REDIS_PUBSUB_READ:
+        return "read"
+    if op_lower in _REDIS_WRITE_OPS or op_lower in _REDIS_PUBSUB_WRITE:
+        return "write"
+    return "write"  # default to write for unknown ops (safer for impact analysis)
+
+
+def _extract_redis_accesses_lua(root, source: bytes, ast: FileAST, binding_map: dict[str, str]):
+    """Extract Redis key accesses from Lua code.
+
+    Detects patterns like:
+        redis:get("key")
+        redis:set("key", value)
+        red:hget("hash", "field")
+    where `redis`/`red` is bound to a `resty.redis` require, or
+    `red` is created by `redis:new()`.
+    """
+    # Find variables bound to Redis modules
+    redis_modules = {"resty.redis", "redis", "resty.redis.connector"}
+    redis_vars = set()
+    for var, mod in binding_map.items():
+        if mod in redis_modules:
+            redis_vars.add(var)
+
+    if not redis_vars:
+        return
+
+    # Also find variables created by <redis_var>:new()
+    # Pattern: local red = redis:new()
+    for decl in _walk_all(root, "variable_declaration"):
+        assign = _first_child_of_type(decl, "assignment_statement")
+        if not assign:
+            continue
+        el = _first_child_of_type(assign, "expression_list")
+        vl = _first_child_of_type(assign, "variable_list")
+        if not (el and vl and vl.named_child_count > 0 and el.named_child_count > 0):
+            continue
+        call = el.named_children[0]
+        if call.type != "function_call":
+            continue
+        name_node = call.child_by_field_name("name")
+        if not name_node or name_node.type != "method_index_expression":
+            continue
+        table = name_node.child_by_field_name("table")
+        method = name_node.child_by_field_name("method")
+        if table and method and _text(table, source) in redis_vars and _text(method, source) == "new":
+            var_node = vl.named_children[0]
+            if var_node.type == "identifier":
+                redis_vars.add(_text(var_node, source))
+
+    all_redis_ops = _REDIS_READ_OPS | _REDIS_WRITE_OPS | _REDIS_PUBSUB_READ | _REDIS_PUBSUB_WRITE
+
+    for call_node in _walk_all(root, "function_call"):
+        name_node = call_node.child_by_field_name("name")
+        if not name_node or name_node.type != "method_index_expression":
+            continue
+
+        table = name_node.child_by_field_name("table")
+        method = name_node.child_by_field_name("method")
+        if not (table and method):
+            continue
+
+        table_text = _text(table, source)
+        method_text = _text(method, source)
+
+        # Check if this is a call on a known Redis variable
+        if table_text not in redis_vars:
+            continue
+
+        if method_text.lower() not in all_redis_ops:
+            continue
+
+        args = _first_child_of_type(call_node, "arguments")
+        key_name = "<dynamic>"
+        if args and args.named_child_count > 0:
+            first_arg = args.named_children[0]
+            if first_arg.type == "string":
+                key_name = _get_string_value(first_arg, source)
+
+        line = call_node.start_point[0] + 1
+        enclosing = _find_enclosing_function(call_node, source)
+
+        ast.redis_accesses.append(RedisKeyAccess(
+            key_name=key_name,
+            operation=method_text,
+            access_type=_classify_redis_op(method_text),
+            function=enclosing,
+            line=line,
+        ))
+
+
+# ---------------------------------------------------------------------------
+# HTTP call tracking (Lua)
+# ---------------------------------------------------------------------------
+
+def _extract_http_calls_lua(root, source: bytes, ast: FileAST, binding_map: dict[str, str]):
+    """Extract HTTP client calls from Lua code.
+
+    Detects patterns like:
+        httpc:request_uri("http://python-svc:8080/api/process", {...})
+        ngx.location.capture("/internal/api")
+    """
+    http_modules = {"resty.http"}
+    http_vars = set()
+    for var, mod in binding_map.items():
+        if mod in http_modules:
+            http_vars.add(var)
+
+    # Also find variables created by <http_var>.new()
+    # Pattern: local httpc = http.new()
+    for decl in _walk_all(root, "variable_declaration"):
+        assign = _first_child_of_type(decl, "assignment_statement")
+        if not assign:
+            continue
+        el = _first_child_of_type(assign, "expression_list")
+        vl = _first_child_of_type(assign, "variable_list")
+        if not (el and vl and vl.named_child_count > 0 and el.named_child_count > 0):
+            continue
+        call = el.named_children[0]
+        if call.type != "function_call":
+            continue
+        name_node = call.child_by_field_name("name")
+        if not name_node:
+            continue
+        callee = _text(name_node, source)
+        # http.new() or http:new()
+        for hvar in list(http_vars):
+            if callee in (f"{hvar}.new", f"{hvar}:new"):
+                var_node = vl.named_children[0]
+                if var_node.type == "identifier":
+                    http_vars.add(_text(var_node, source))
+                break
+
+    for call_node in _walk_all(root, "function_call"):
+        name_node = call_node.child_by_field_name("name")
+        if not name_node:
+            continue
+
+        callee_text = _text(name_node, source)
+        args = _first_child_of_type(call_node, "arguments")
+        if not args or args.named_child_count == 0:
+            continue
+
+        line = call_node.start_point[0] + 1
+        enclosing = _find_enclosing_function(call_node, source)
+        url_or_path = None
+        method = "unknown"
+
+        # httpc:request_uri(url, params) pattern
+        if name_node.type == "method_index_expression":
+            table = name_node.child_by_field_name("table")
+            method_node = name_node.child_by_field_name("method")
+            if table and method_node:
+                table_text = _text(table, source)
+                method_text = _text(method_node, source)
+                if table_text in http_vars and method_text == "request_uri":
+                    first_arg = args.named_children[0]
+                    if first_arg.type == "string":
+                        url_or_path = _get_string_value(first_arg, source)
+                        # Try to detect method from params table
+                        if args.named_child_count > 1:
+                            params = args.named_children[1]
+                            if params.type == "table_constructor":
+                                for field_node in params.named_children:
+                                    if field_node.type == "field":
+                                        name = field_node.child_by_field_name("name")
+                                        if name and _text(name, source) == "method":
+                                            val = field_node.child_by_field_name("value")
+                                            if val and val.type == "string":
+                                                method = _get_string_value(val, source)
+
+        # ngx.location.capture(path) — already tracked as redirect, but also as HTTP
+        elif callee_text == "ngx.location.capture":
+            first_arg = args.named_children[0]
+            if first_arg.type == "string":
+                url_or_path = _get_string_value(first_arg, source)
+                method = "GET"
+
+        if url_or_path:
+            ast.http_calls.append(HttpCallRef(
+                url_or_path=url_or_path,
+                method=method,
+                function=enclosing,
+                line=line,
+            ))
+
+
+# ---------------------------------------------------------------------------
 # Main entry point
 # ---------------------------------------------------------------------------
 
@@ -592,5 +866,14 @@ def parse_lua_file(file_path: str) -> FileAST:
 
     # 8. ngx.shared accesses
     _extract_shared_dict_accesses(root, source, ast)
+
+    # 9. Internal redirects (ngx.exec, ngx.location.capture)
+    _extract_internal_redirects(root, source, ast)
+
+    # 10. Redis key accesses
+    _extract_redis_accesses_lua(root, source, ast, binding_map)
+
+    # 11. HTTP client calls
+    _extract_http_calls_lua(root, source, ast, binding_map)
 
     return ast

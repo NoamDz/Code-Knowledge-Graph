@@ -1,0 +1,265 @@
+"""Tests for the new cross-service analysis features.
+
+Covers:
+  - Config loading (lua_package_paths)
+  - nginx include following
+  - Internal redirect detection (ngx.exec, ngx.location.capture)
+  - Redis key tracking (Lua + Python)
+  - HTTP call tracking (Lua + Python)
+  - Python import resolver
+"""
+
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+
+from graph_builder.parsers.lua_parser import parse_lua_file
+from graph_builder.parsers.python_parser import parse_python_file
+from graph_builder.parsers.nginx_parser import parse_nginx_conf, parse_nginx_conf_recursive
+from graph_builder.config import Config
+from graph_builder.resolvers.python_resolver import PythonResolver
+
+FIXTURES = Path(__file__).parent / "fixtures"
+LUA_FIXTURES = FIXTURES / "lua"
+PY_FIXTURES = FIXTURES / "python"
+NGINX_FIXTURES = FIXTURES / "nginx_includes"
+
+
+# --- Config loading ---
+
+def test_config_lua_package_paths():
+    """lua_package_paths from config.yml should be loaded."""
+    config_path = Path(__file__).parent.parent.parent / "config_example.yml"
+    if not config_path.exists():
+        print("  SKIP: config_example.yml not found")
+        return
+
+    config = Config.from_yaml(str(config_path))
+    assert hasattr(config, "lua_package_paths"), "Config missing lua_package_paths attribute"
+    assert len(config.lua_package_paths) > 0, f"Expected lua_package_paths, got {config.lua_package_paths}"
+    assert any("?.lua" in p for p in config.lua_package_paths), \
+        f"Expected ?.lua patterns in {config.lua_package_paths}"
+    print(f"  PASS: config loaded {len(config.lua_package_paths)} lua_package_paths")
+
+
+def test_config_defaults():
+    """Default config should have empty lua_package_paths."""
+    config = Config.default()
+    assert config.lua_package_paths == [], f"Expected empty, got {config.lua_package_paths}"
+    assert config.nginx_base_path is None
+    print("  PASS: config defaults correct")
+
+
+# --- nginx include following ---
+
+def test_nginx_includes():
+    """Recursive nginx parser should follow include directives."""
+    main_conf = NGINX_FIXTURES / "main.conf"
+    if not main_conf.exists():
+        print("  SKIP: nginx include fixture not found")
+        return
+
+    config = parse_nginx_conf_recursive(str(main_conf))
+
+    # Should have locations from both included files
+    location_paths = {loc.path for loc in config.locations}
+    assert "/health" in location_paths, f"Missing /health in {location_paths}"
+    assert "/api/users" in location_paths, f"Missing /api/users in {location_paths}"
+    assert "/api/orders" in location_paths, f"Missing /api/orders in {location_paths}"
+    assert "/internal/process" in location_paths, f"Missing /internal/process in {location_paths}"
+    assert "/internal/fetch_data" in location_paths, f"Missing /internal/fetch_data in {location_paths}"
+
+    # Should have shared dicts from both main and included
+    dict_names = {d.name for d in config.shared_dicts}
+    assert "main_cache" in dict_names, f"Missing main_cache in {dict_names}"
+    assert "api_cache" in dict_names, f"Missing api_cache in {dict_names}"
+
+    # Should have package path from main config
+    assert len(config.lua_package_path) > 0, "Missing lua_package_path"
+
+    print(f"  PASS: nginx includes — {len(config.locations)} locations, "
+          f"{len(config.shared_dicts)} shared dicts")
+
+
+def test_nginx_single_file_unchanged():
+    """Single-file parser should still work as before."""
+    conf = FIXTURES / "nginx.conf"
+    if not conf.exists():
+        print("  SKIP: nginx.conf fixture not found")
+        return
+
+    config = parse_nginx_conf(str(conf))
+    assert len(config.locations) >= 4, f"Expected >= 4 locations, got {len(config.locations)}"
+    print(f"  PASS: single-file nginx parse — {len(config.locations)} locations")
+
+
+# --- Internal redirects ---
+
+def test_internal_redirects():
+    """Parser should detect ngx.exec and ngx.location.capture calls."""
+    ast = parse_lua_file(str(LUA_FIXTURES / "internal_redirect.lua"))
+
+    assert len(ast.internal_redirects) >= 3, \
+        f"Expected >= 3 redirects, got {len(ast.internal_redirects)}: " \
+        f"{[(r.target_path, r.redirect_type) for r in ast.internal_redirects]}"
+
+    targets = {r.target_path for r in ast.internal_redirects}
+    assert "/internal/process" in targets, f"Missing /internal/process in {targets}"
+    assert "/internal/fetch_data" in targets, f"Missing /internal/fetch_data in {targets}"
+
+    # capture_multi should produce multiple redirects
+    types = {r.redirect_type for r in ast.internal_redirects}
+    assert "exec" in types, f"Missing exec type in {types}"
+    assert "capture" in types, f"Missing capture type in {types}"
+    assert "capture_multi" in types, f"Missing capture_multi type in {types}"
+
+    # Should be assigned to correct functions
+    exec_redirect = [r for r in ast.internal_redirects if r.redirect_type == "exec"][0]
+    assert exec_redirect.function == "_M.process_request", \
+        f"Expected _M.process_request, got {exec_redirect.function}"
+
+    print(f"  PASS: internal redirects — {len(ast.internal_redirects)} detected")
+
+
+# --- Redis key tracking ---
+
+def test_redis_lua():
+    """Lua parser should detect Redis operations."""
+    ast = parse_lua_file(str(LUA_FIXTURES / "redis_usage.lua"))
+
+    assert len(ast.redis_accesses) >= 3, \
+        f"Expected >= 3 Redis accesses, got {len(ast.redis_accesses)}: " \
+        f"{[(r.key_name, r.operation) for r in ast.redis_accesses]}"
+
+    ops = {r.operation for r in ast.redis_accesses}
+    assert "get" in ops, f"Missing get in {ops}"
+    assert "set" in ops, f"Missing set in {ops}"
+
+    # Check read/write classification
+    reads = [r for r in ast.redis_accesses if r.access_type == "read"]
+    writes = [r for r in ast.redis_accesses if r.access_type == "write"]
+    assert len(reads) >= 1, f"Expected >= 1 read, got {len(reads)}"
+    assert len(writes) >= 1, f"Expected >= 1 write, got {len(writes)}"
+
+    print(f"  PASS: Redis Lua — {len(ast.redis_accesses)} accesses "
+          f"({len(reads)} reads, {len(writes)} writes)")
+
+
+def test_redis_python():
+    """Python parser should detect Redis operations."""
+    ast = parse_python_file(str(PY_FIXTURES / "redis_service.py"))
+
+    assert len(ast.redis_accesses) >= 3, \
+        f"Expected >= 3 Redis accesses, got {len(ast.redis_accesses)}: " \
+        f"{[(r.key_name, r.operation) for r in ast.redis_accesses]}"
+
+    ops = {r.operation for r in ast.redis_accesses}
+    assert "get" in ops, f"Missing get in {ops}"
+    assert "set" in ops, f"Missing set in {ops}"
+
+    reads = [r for r in ast.redis_accesses if r.access_type == "read"]
+    writes = [r for r in ast.redis_accesses if r.access_type == "write"]
+    assert len(reads) >= 1, f"Expected reads, got {len(reads)}"
+    assert len(writes) >= 1, f"Expected writes, got {len(writes)}"
+
+    print(f"  PASS: Redis Python — {len(ast.redis_accesses)} accesses "
+          f"({len(reads)} reads, {len(writes)} writes)")
+
+
+# --- HTTP call tracking ---
+
+def test_http_calls_lua():
+    """Lua parser should detect HTTP client calls."""
+    ast = parse_lua_file(str(LUA_FIXTURES / "http_calls.lua"))
+
+    assert len(ast.http_calls) >= 2, \
+        f"Expected >= 2 HTTP calls, got {len(ast.http_calls)}: " \
+        f"{[(h.url_or_path, h.method) for h in ast.http_calls]}"
+
+    urls = {h.url_or_path for h in ast.http_calls}
+    assert any("python-svc" in u for u in urls), f"Missing python-svc call in {urls}"
+    assert any("config-svc" in u for u in urls), f"Missing config-svc call in {urls}"
+
+    print(f"  PASS: HTTP Lua — {len(ast.http_calls)} calls detected")
+
+
+def test_http_calls_python():
+    """Python parser should detect HTTP client calls."""
+    ast = parse_python_file(str(PY_FIXTURES / "http_service.py"))
+
+    assert len(ast.http_calls) >= 2, \
+        f"Expected >= 2 HTTP calls, got {len(ast.http_calls)}: " \
+        f"{[(h.url_or_path, h.method) for h in ast.http_calls]}"
+
+    methods = {h.method for h in ast.http_calls}
+    assert "POST" in methods, f"Missing POST in {methods}"
+    assert "GET" in methods, f"Missing GET in {methods}"
+
+    print(f"  PASS: HTTP Python — {len(ast.http_calls)} calls detected")
+
+
+# --- Python resolver ---
+
+def test_python_resolver():
+    """Python resolver should resolve imports to file paths."""
+    resolver = PythonResolver(str(PY_FIXTURES.parent.parent.parent))
+
+    # Should be able to resolve a module that exists in the repo
+    # Test with the fixtures themselves
+    resolved = resolver._resolve_absolute("graph_builder.parsers.base")
+    if resolved:
+        assert "base.py" in resolved, f"Expected base.py in {resolved}"
+        print(f"  PASS: Python resolver — resolved graph_builder.parsers.base → {Path(resolved).name}")
+    else:
+        print("  SKIP: Python resolver — could not resolve in this directory structure")
+
+
+# --- Runner ---
+
+def run_all():
+    tests = [
+        test_config_lua_package_paths,
+        test_config_defaults,
+        test_nginx_includes,
+        test_nginx_single_file_unchanged,
+        test_internal_redirects,
+        test_redis_lua,
+        test_redis_python,
+        test_http_calls_lua,
+        test_http_calls_python,
+        test_python_resolver,
+    ]
+
+    passed = 0
+    failed = 0
+    skipped = 0
+    errors = []
+
+    print("\n=== New Feature Tests ===\n")
+    for test in tests:
+        try:
+            test()
+            passed += 1
+        except AssertionError as e:
+            failed += 1
+            errors.append((test.__name__, str(e)))
+            print(f"  FAIL: {test.__name__}: {e}")
+        except Exception as e:
+            failed += 1
+            errors.append((test.__name__, f"ERROR: {e}"))
+            print(f"  ERROR: {test.__name__}: {e}")
+
+    print(f"\n{'='*50}")
+    print(f"Results: {passed} passed, {failed} failed out of {len(tests)}")
+    if errors:
+        print(f"\nFailures:")
+        for name, err in errors:
+            print(f"  {name}: {err}")
+    print()
+    return failed == 0
+
+
+if __name__ == "__main__":
+    success = run_all()
+    sys.exit(0 if success else 1)

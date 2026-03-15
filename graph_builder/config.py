@@ -44,6 +44,12 @@ class Config:
     lua_module_table_names: list[str] = field(default_factory=lambda: [
         "_M", "m", "M",
     ])
+    lua_package_paths: list[str] = field(default_factory=list)
+
+    # Path prefix for resolving nginx include directives.
+    # In containers, nginx includes use absolute paths like /data/app/nginx/conf.d/*.conf
+    # This maps the container prefix to the local repo_root.
+    nginx_base_path: str | None = None
 
     @classmethod
     def from_yaml(cls, path: str) -> "Config":
@@ -68,6 +74,10 @@ class Config:
             config.skip_dirs = set(raw["skip_dirs"])
         if "lua_module_table_names" in raw:
             config.lua_module_table_names = raw["lua_module_table_names"]
+        if "lua_package_paths" in raw:
+            config.lua_package_paths = raw["lua_package_paths"]
+        if "nginx_base_path" in raw:
+            config.nginx_base_path = raw["nginx_base_path"]
 
         return config
 

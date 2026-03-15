@@ -166,6 +166,49 @@ class GraphWriter:
         """, dict=dict_name, op=operation, func=function,
              file=file_path, line=line)
 
+    def upsert_internal_redirect(self, source_function: str, source_file: str,
+                                  target_path: str, redirect_type: str, line: int):
+        """Create a REROUTES_TO edge from a function to an Endpoint."""
+        self._run("""
+            MERGE (fn:Function {name: $func, file: $file})
+            MERGE (e:Endpoint {path: $target})
+            MERGE (fn)-[:REROUTES_TO {redirect_type: $rtype, line: $line}]->(e)
+        """, func=source_function, file=source_file,
+             target=target_path, rtype=redirect_type, line=line)
+
+    def upsert_redis_access(self, key_name: str, operation: str,
+                             access_type: str, function: str,
+                             file_path: str, line: int):
+        """Create a RedisKey node and REDIS_READS/REDIS_WRITES edge."""
+        edge_type = "REDIS_WRITES" if access_type == "write" else "REDIS_READS"
+        self._run(f"""
+            MERGE (k:RedisKey {{name: $key}})
+            MERGE (fn:Function {{name: $func, file: $file}})
+            MERGE (fn)-[:{edge_type} {{operation: $op, line: $line}}]->(k)
+        """, key=key_name, func=function, file=file_path,
+             op=operation, line=line)
+
+    def upsert_http_call(self, url_or_path: str, method: str,
+                          function: str, file_path: str, line: int):
+        """Create an HTTP_CALLS edge from a function to an Endpoint (if path matches)."""
+        # Try to link to an existing Endpoint node if the URL looks like a path
+        if url_or_path.startswith("/"):
+            self._run("""
+                MERGE (fn:Function {name: $func, file: $file})
+                MERGE (e:Endpoint {path: $path})
+                MERGE (fn)-[:HTTP_CALLS {method: $method, line: $line}]->(e)
+            """, func=function, file=file_path,
+                 path=url_or_path, method=method, line=line)
+        else:
+            # External URL — store as property on a generic Endpoint node
+            self._run("""
+                MERGE (fn:Function {name: $func, file: $file})
+                MERGE (e:Endpoint {path: $url})
+                SET e.is_external = true
+                MERGE (fn)-[:HTTP_CALLS {method: $method, line: $line}]->(e)
+            """, func=function, file=file_path,
+                 url=url_or_path, method=method, line=line)
+
     # --- Bulk operations ---
 
     def ingest_file_ast(self, ast: FileAST, resolved_imports: dict[str, str | None] | None = None):
@@ -224,6 +267,27 @@ class GraphWriter:
             self.upsert_shared_dict_access(
                 sd.dict_name, sd.operation,
                 sd.function, ast.file_path, sd.line,
+            )
+
+        # Internal redirects
+        for redir in ast.internal_redirects:
+            self.upsert_internal_redirect(
+                redir.function, ast.file_path,
+                redir.target_path, redir.redirect_type, redir.line,
+            )
+
+        # Redis accesses
+        for ra in ast.redis_accesses:
+            self.upsert_redis_access(
+                ra.key_name, ra.operation, ra.access_type,
+                ra.function, ast.file_path, ra.line,
+            )
+
+        # HTTP calls
+        for hc in ast.http_calls:
+            self.upsert_http_call(
+                hc.url_or_path, hc.method,
+                hc.function, ast.file_path, hc.line,
             )
 
     def clear_file(self, file_path: str):
