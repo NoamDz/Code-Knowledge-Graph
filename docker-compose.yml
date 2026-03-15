@@ -1,0 +1,15 @@
+version: '3.8'
+services:
+  memgraph:
+    image: memgraph/memgraph-platform:latest
+    ports:
+      - "7687:7687"   # Bolt protocol (Cypher queries)
+      - "3000:3000"   # Memgraph Lab (visual graph browser)
+    volumes:
+      - memgraph_data:/var/lib/memgraph
+    environment:
+      - MEMGRAPH_STORAGE_MODE=IN_MEMORY_ANALYTICAL
+    restart: unless-stopped
+
+volumes:
+  memgraph_data:
