@@ -2,3 +2,4 @@
 config.yml
 code_graph.egg-info/*
 __pycache__
+.venv/*
