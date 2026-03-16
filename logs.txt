@@ -92,175 +92,29 @@
   ⚠ Dynamic require at line 67: require("common.orm_models."..k)
   ... and 8 more
 
-  Report generated in 9.49s
+  Report generated in 10.24s
 
-(.venv) il021250@Noams-MacBook-Pro Code-Knowledge-Graph % code-graph spot-check /Users/il021250/dev/pinpoint/src/ato/assessors/device_id/init.lua
-============================================================
-Spot Check: /Users/il021250/dev/pinpoint/src/ato/assessors/device_id/init.lua
-============================================================
-
-SOURCE: 194 lines, language: lua
-
-MODULE PATTERN: named
-  Table variable: DeviceIdAssessor
-  Returns: DeviceIdAssessor
-
-FUNCTIONS (5):
-  ○ get_device_os_api_level(bundle, device, mobile_data)  lines 47-62  vis=local
-  ○ is_mobile_hybrid(bundle, session_info, collect_data)  lines 69-76  vis=local
-  ✓ DeviceIdAssessor.fill_device_info(device_info, client_info, mobile_data, bundle, store)  lines 78-136  vis=public
-  ○ machine_id_changed(device_info, previous_device_info)  lines 138-145  vis=local
-  ✓ DeviceIdAssessor.assess(bundle, store)  lines 147-191  vis=public
-
-EXPORTS (8): assess_key, name, digest_values, assess, model_prediction_trigger, fill_device_info, __index, rank
-
-IMPORTS (15):
-  require: "config" as config  (line 1)
-  require: "lib.lua.utils" as utils  (line 2)
-  require: "triggers" as triggers  (line 3)
-  require: "lib.lua.datetime" as datetime  (line 4)
-  require: "lib.lua.string_utils" as string_utils  (line 5)
-  require: "lib.lua.table_utils" as table_utils  (line 6)
-  require: "common.collectors.client_info" as ClientInfoCollector  (line 7)
-  require: "ato.collectors.device.device_id" as DeviceIdCollector  (line 8)
-  require: "ato.collectors.device.global_device_id" as GlobalDeviceIdCollector  (line 9)
-  require: "ato.helpers.common" as CommonHelpers  (line 10)
-  require: "ato.helpers.tor" as TorHelpers  (line 11)
-  require: "ato.helpers.device" as DeviceHelpers  (line 12)
-  require: "features.lua" as features  (line 13)
-  require: "lib.lua.logger" as logger  (line 14)
-  require: "ato.helpers.model_prediction" as ModelPredictionHelpers  (line 15)
-
-CALLS (55):
-  <module> → config.get → config.get  (line 19)
-  <module> → features.enabled → features.lua.enabled  (line 20)
-  get_device_os_api_level → features.enabled → features.lua.enabled  (line 50)
-  get_device_os_api_level → DeviceHelpers.get_mobile_os → ato.helpers.device.get_mobile_os  (line 51)
-  get_device_os_api_level → DeviceHelpers.get_mobile_os_version → ato.helpers.device.get_mobile_os_version  (line 53)
-  get_device_os_api_level → CommonHelpers.item_exists_in_redis_lists → ato.helpers.common.item_exists_in_redis_lists  (line 55)
-  get_device_os_api_level → tonumber  (line 57)
-  is_mobile_hybrid → bundle:get  (line 70)
-  is_mobile_hybrid → features.enabled → features.lua.enabled  (line 72)
-  is_mobile_hybrid → DeviceHelpers.has_device_cookie → ato.helpers.device.has_device_cookie  (line 73)
-  DeviceIdAssessor.fill_device_info → DeviceHelpers.fill_device_digest_attributes → ato.helpers.device.fill_device_digest_attributes  (line 81)
-  DeviceIdAssessor.fill_device_info → pairs  (line 83)
-  DeviceIdAssessor.fill_device_info → TorHelpers.get_tor_data → ato.helpers.tor.get_tor_data  (line 83)
-  DeviceIdAssessor.fill_device_info → string_utils.is_empty → lib.lua.string_utils.is_empty  (line 88)
-  DeviceIdAssessor.fill_device_info → datetime.mysql_now → lib.lua.datetime.mysql_now  (line 89)
-  DeviceIdAssessor.fill_device_info → datetime.http_to_mysql → lib.lua.datetime.http_to_mysql  (line 91)
-  DeviceIdAssessor.fill_device_info → ipairs  (line 93)
-  DeviceIdAssessor.fill_device_info → string_utils.is_empty → lib.lua.string_utils.is_empty  (line 100)
-  DeviceIdAssessor.fill_device_info → string_utils.is_empty → lib.lua.string_utils.is_empty  (line 103)
-  DeviceIdAssessor.fill_device_info → string_utils.is_empty → lib.lua.string_utils.is_empty  (line 107)
-  DeviceIdAssessor.fill_device_info → utils.extract_class_c_network_identifier → lib.lua.utils.extract_class_c_network_identifier  (line 113)
-  DeviceIdAssessor.fill_device_info → DeviceHelpers.add_screen_resolution_attribute → ato.helpers.device.add_screen_resolution_attribute  (line 115)
-  DeviceIdAssessor.fill_device_info → get_device_os_api_level  (line 121)
-  DeviceIdAssessor.fill_device_info → store.collect_vector:get  (line 123)
-  DeviceIdAssessor.fill_device_info → table_utils.is_empty → lib.lua.table_utils.is_empty  (line 124)
-  DeviceIdAssessor.fill_device_info → table_utils.merge → lib.lua.table_utils.merge  (line 125)
-  DeviceIdAssessor.fill_device_info → store.assess_vector:get  (line 128)
-  DeviceIdAssessor.fill_device_info → table_utils.is_empty → lib.lua.table_utils.is_empty  (line 129)
-  DeviceIdAssessor.fill_device_info → table_utils.merge → lib.lua.table_utils.merge  (line 130)
-  DeviceIdAssessor.fill_device_info → DeviceHelpers.add_private_mode_indication → ato.helpers.device.add_private_mode_indication  (line 133)
-  machine_id_changed → string_utils.is_empty → lib.lua.string_utils.is_empty  (line 139)
-  DeviceIdAssessor.assess → assert  (line 148)
-  DeviceIdAssessor.assess → store.collect_vector:get  (line 149)
-  DeviceIdAssessor.assess → store.assess_vector:get  (line 150)
-  DeviceIdAssessor.assess → store.assess_vector:get  (line 151)
-  DeviceIdAssessor.assess → store.collect_vector:get  (line 152)
-  DeviceIdAssessor.assess → store.assess_vector:get  (line 153)
-  DeviceIdAssessor.assess → type  (line 157)
-  DeviceIdAssessor.assess → pairs  (line 158)
-  DeviceIdAssessor.assess → DeviceIdAssessor.fill_device_info  (line 161)
-  DeviceIdAssessor.assess → ipairs  (line 162)
-  DeviceIdAssessor.assess → bundle:get  (line 162)
-  DeviceIdAssessor.assess → utils.digest → lib.lua.utils.digest  (line 165)
-  DeviceIdAssessor.assess → table_utils.is_empty → lib.lua.table_utils.is_empty  (line 166)
-  DeviceIdAssessor.assess → is_mobile_hybrid  (line 167)
-  DeviceIdAssessor.assess → DeviceHelpers.has_agent_key → ato.helpers.device.has_agent_key  (line 167)
-  DeviceIdAssessor.assess → logger.log → lib.lua.logger.log  (line 168)
-  DeviceIdAssessor.assess → format  (line 168)
-  DeviceIdAssessor.assess → DeviceHelpers.create_hybrid_device_event → ato.helpers.device.create_hybrid_device_event  (line 169)
-  DeviceIdAssessor.assess → store.assess_vector:get  (line 175)
-  DeviceIdAssessor.assess → machine_id_changed  (line 176)
-  DeviceIdAssessor.assess → triggers.defer → triggers.defer  (line 177)
-  DeviceIdAssessor.assess → store.assess_vector:set  (line 186)
-  DeviceIdAssessor.assess → ModelPredictionHelpers.trigger_model_prediction → ato.helpers.model_prediction.trigger_model_prediction  (line 187)
-  DeviceIdAssessor.assess → ModelPredictionHelpers.trigger_model_prediction_multi_triggers → ato.helpers.model_prediction.trigger_model_prediction_multi_triggers  (line 188)
-
-(.venv) il021250@Noams-MacBook-Pro Code-Knowledge-Graph % code-graph spot-check /Users/il021250/dev/pinpoint/src/deferrer/aggregator/bin/app.py
-============================================================
-Spot Check: /Users/il021250/dev/pinpoint/src/deferrer/aggregator/bin/app.py
-============================================================
-
-SOURCE: 79 lines, language: python
-
-CLASSES (3):
-  MainHandler < tornado.web.RequestHandler  (lines 22-38)
-    methods: add_task, get, post
-  MonitorHandler < tornado.web.RequestHandler  (lines 40-44)
-    methods: get
-  AggregatorApplication < tornado.web.Application  (lines 46-61)
-    methods: signal_handler, try_exit
-
-FUNCTIONS (6):
-  ✓ add_task(self, data)  lines 23-31  vis=public [method]
-  ✓ get(self)  lines 33-34  vis=public [method]
-  ✓ post(self)  lines 36-38  vis=public [method]
-  ✓ get(self)  lines 41-44  vis=public [method]
-  ✓ signal_handler(self, signum, frame)  lines 52-54  vis=public [method]
-  ✓ try_exit(self)  lines 56-61  vis=public [method]
-
-EXPORTS (3): MainHandler, MonitorHandler, AggregatorApplication
-
-IMPORTS (8):
-  import: "os" as os  (line 3)
-  import: "tornado.ioloop" as tornado  (line 11)
-  from_import: "aggregator.task_manager" as TaskManager  (line 7)
-  from_import: "aggregator.config" as Config  (line 8)
-  from_import: "tornado.httpserver" as HTTPServer  (line 10)
-  from_import: "tornado.netutil" as bind_unix_socket  (line 12)
-  from_import: "tornado.log" as enable_pretty_logging  (line 13)
-  from_import: "func_timeout" as FunctionTimedOut  (line 15)
-
-CALLS (40):
-  <module> → sys.path.append  (line 5)
-  <module> → os.path.join → os.path.join  (line 5)
-  <module> → os.path.dirname → os.path.dirname  (line 5)
-  <module> → multiprocessing.cpu_count  (line 17)
-  MainHandler.add_task → AggregatorApplication.task_manager.add  (line 25)
-  MainHandler.add_task → Config.instance().logger.exception → aggregator.config.instance().logger.exception  (line 28)
-  MainHandler.add_task → Config.instance → aggregator.config.instance  (line 28)
-  MainHandler.add_task → "Error: {}. Failed adding task {}".format  (line 28)
-  MainHandler.add_task → str  (line 28)
-  MainHandler.add_task → Config.instance().statsd_client.increment → aggregator.config.instance().statsd_client.increment  (line 29)
-  MainHandler.add_task → Config.instance → aggregator.config.instance  (line 29)
-  MainHandler.add_task → self.set_status  (line 30)
-  MainHandler.get → self.write  (line 34)
-  MainHandler.post → self.add_task  (line 37)
-  MainHandler.post → self.write  (line 38)
-  MonitorHandler.get → AggregatorApplication.task_manager.monitor  (line 42)
-  MonitorHandler.get → self.set_status  (line 43)
-  MonitorHandler.get → self.write  (line 44)
-  <module> → TaskManager  (line 49)
-  AggregatorApplication.signal_handler → Config.instance().logger.info → aggregator.config.instance().logger.info  (line 53)
-  AggregatorApplication.signal_handler → Config.instance → aggregator.config.instance  (line 53)
-  AggregatorApplication.try_exit → tornado.ioloop.IOLoop.instance().stop → tornado.ioloop.ioloop.IOLoop.instance().stop  (line 58)
-  AggregatorApplication.try_exit → tornado.ioloop.IOLoop.instance → tornado.ioloop.ioloop.IOLoop.instance  (line 58)
-  AggregatorApplication.try_exit → AggregatorApplication.task_manager.shutdown  (line 59)
-  AggregatorApplication.try_exit → Config.instance().logger.info → aggregator.config.instance().logger.info  (line 61)
-  AggregatorApplication.try_exit → Config.instance → aggregator.config.instance  (line 61)
-  <module> → AggregatorApplication  (line 63)
-  <module> → Config.instance → aggregator.config.instance  (line 64)
-  <module> → Config.is_dev_mode → aggregator.config.is_dev_mode  (line 66)
-  <module> → HTTPServer  (line 69)
-  <module> → bind_unix_socket  (line 70)
-  <module> → Config.instance → aggregator.config.instance  (line 70)
-  <module> → server.add_socket  (line 71)
-  <module> → enable_pretty_logging  (line 72)
-  <module> → signal.signal  (line 74)
-  <module> → signal.signal  (line 75)
-  <module> → tornado.ioloop.PeriodicCallback(application.try_exit, PERIODIC_EXIT_CHECK_TIME).start → tornado.ioloop.ioloop.PeriodicCallback(application.try_exit, PERIODIC_EXIT_CHECK_TIME).start  (line 77)
-  <module> → tornado.ioloop.PeriodicCallback → tornado.ioloop.ioloop.PeriodicCallback  (line 77)
-  <module> → tornado.ioloop.IOLoop.instance().start → tornado.ioloop.ioloop.IOLoop.instance().start  (line 78)
-  <module> → tornado.ioloop.IOLoop.instance → tornado.ioloop.ioloop.IOLoop.instance  (line 78)
+(.venv) il021250@Noams-MacBook-Pro Code-Knowledge-Graph % grep -rn "ngx/.ctx" --include="*.lua" /Users/il021250/dev/pinpoint/src | head -20
+(.venv) il021250@Noams-MacBook-Pro Code-Knowledge-Graph % grep -rn "ngx/.ctx" --include="*.lua" /Users/il021250/dev/pinpoint/src/* | head -20
+(.venv) il021250@Noams-MacBook-Pro Code-Knowledge-Graph % grep -rn "ngx/.ctx" --include="*.lua" /Users/il021250/dev/pinpoint/src/ato | head -20
+(.venv) il021250@Noams-MacBook-Pro Code-Knowledge-Graph % grep -rn "ctx" --include="*.lua" /Users/il021250/dev/pinpoint/src/| head -20
+/Users/il021250/dev/pinpoint/src/core/openresty/global_init.lua:33:-- in some cases, after exit, for example ngx.exit(500), ngx.ctx will be empty at the log phase.
+/Users/il021250/dev/pinpoint/src/core/config/global_config/init.lua:67:  local ctx = context.get("global_config")
+/Users/il021250/dev/pinpoint/src/core/config/global_config/init.lua:68:  ctx.is_deferrer = true
+/Users/il021250/dev/pinpoint/src/core/config/global_config/init.lua:72:  local ctx = context.get("global_config")
+/Users/il021250/dev/pinpoint/src/core/config/global_config/init.lua:73:  ctx.is_deferrer = false
+/Users/il021250/dev/pinpoint/src/core/config/global_config/init.lua:99:  local ctx = context.get("global_config")
+/Users/il021250/dev/pinpoint/src/core/config/global_config/init.lua:100:  if ctx.component == nil then
+/Users/il021250/dev/pinpoint/src/core/config/global_config/init.lua:101:    ctx.component = "common"
+/Users/il021250/dev/pinpoint/src/core/config/global_config/init.lua:103:  if ctx.is_deferrer == nil then
+/Users/il021250/dev/pinpoint/src/core/config/global_config/init.lua:104:    ctx.is_deferrer = false
+/Users/il021250/dev/pinpoint/src/core/config/global_config/init.lua:106:  return ctx
+/Users/il021250/dev/pinpoint/src/core/config/global_config/init.lua:122:      local ctx = context.get("global_config")
+/Users/il021250/dev/pinpoint/src/core/config/global_config/init.lua:123:      ctx.component = tostring(component)
+/Users/il021250/dev/pinpoint/src/core/triggers.lua:75:  local ctx = context.get(CTX)
+/Users/il021250/dev/pinpoint/src/core/triggers.lua:76:  local existing_context = ctx.tree or {}
+/Users/il021250/dev/pinpoint/src/core/triggers.lua:78:  ctx.tree = table_utils.update_table(trigger.active_tree or {}, existing_context)
+/Users/il021250/dev/pinpoint/src/core/triggers.lua:80:  ctx.tree = existing_context
+/Users/il021250/dev/pinpoint/src/core/triggers.lua:100:  local ctx = context.get(CTX)
+/Users/il021250/dev/pinpoint/src/core/triggers.lua:107:  for trigger in pop_iterator, (ctx.pending_triggers or {}) do
+/Users/il021250/dev/pinpoint/src/core/triggers.lua:157:  local ctx = context.get(CTX)
