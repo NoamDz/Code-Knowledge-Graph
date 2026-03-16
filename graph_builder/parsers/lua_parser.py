@@ -468,40 +468,75 @@ def _resolve_call(callee: str, binding_map: dict[str, str]) -> tuple[str | None,
 # ---------------------------------------------------------------------------
 
 def _extract_ctx_accesses(root, source: bytes, ast: FileAST):
-    """Extract ngx.ctx.field reads and writes."""
+    """Extract ngx.ctx.field reads and writes.
+
+    Handles both dot notation and bracket notation:
+      ngx.ctx.user_id        (dot_index_expression)
+      ngx.ctx["user_id"]     (bracket_index_expression)
+    Also handles aliased access:
+      local ctx = ngx.ctx; ctx.user_id
+    """
     written_locs = set()
 
-    for dot_node in _walk_all(root, "dot_index_expression"):
-        table = dot_node.child_by_field_name("table")
-        field = dot_node.child_by_field_name("field")
-        if not (table and field and table.type == "dot_index_expression"):
+    # Track aliases: local ctx = ngx.ctx
+    ctx_aliases = {"ngx.ctx"}  # always match ngx.ctx itself
+    for decl in _walk_all(root, "variable_declaration"):
+        assign = _first_child_of_type(decl, "assignment_statement")
+        if not assign:
             continue
-        inner_t = table.child_by_field_name("table")
-        inner_f = table.child_by_field_name("field")
-        if not (inner_t and inner_f):
+        vl = _first_child_of_type(assign, "variable_list")
+        el = _first_child_of_type(assign, "expression_list")
+        if not (vl and el and vl.named_child_count > 0 and el.named_child_count > 0):
             continue
-        if _text(inner_t, source) != "ngx" or _text(inner_f, source) != "ctx":
-            continue
+        rhs = el.named_children[0]
+        if rhs.type == "dot_index_expression":
+            rhs_text = _text(rhs, source)
+            if rhs_text == "ngx.ctx":
+                var_node = vl.named_children[0]
+                if var_node.type == "identifier":
+                    ctx_aliases.add(_text(var_node, source))
 
-        field_name = _text(field, source)
-        line = field.start_point[0] + 1
-        enclosing = _find_enclosing_function(dot_node, source)
+    def _is_ctx_table(node) -> bool:
+        """Check if a node represents ngx.ctx or an alias of it."""
+        if node.type == "dot_index_expression":
+            return _text(node, source) in ctx_aliases
+        if node.type == "identifier":
+            return _text(node, source) in ctx_aliases
+        return False
 
-        # Determine read vs write: check if this dot_node is inside a variable_list
-        # on the LHS of an assignment
-        is_write = _is_lhs_of_assignment(dot_node)
-
+    def _add_ctx_access(field_name: str, node, line: int):
+        enclosing = _find_enclosing_function(node, source)
+        is_write = _is_lhs_of_assignment(node)
         access_type = "write" if is_write else "read"
         loc = (field_name, line)
         if access_type == "write":
             written_locs.add(loc)
         elif loc in written_locs:
-            continue
-
+            return
         ast.ctx_accesses.append(ContextAccess(
             field_name=field_name, access_type=access_type,
             function=enclosing, line=line,
         ))
+
+    # Pattern 1: ngx.ctx.field or ctx_alias.field (dot notation)
+    for dot_node in _walk_all(root, "dot_index_expression"):
+        table = dot_node.child_by_field_name("table")
+        field = dot_node.child_by_field_name("field")
+        if not (table and field):
+            continue
+        if _is_ctx_table(table):
+            field_name = _text(field, source)
+            _add_ctx_access(field_name, dot_node, field.start_point[0] + 1)
+
+    # Pattern 2: ngx.ctx["field"] or ctx_alias["field"] (bracket notation)
+    for bracket_node in _walk_all(root, "bracket_index_expression"):
+        table = bracket_node.child_by_field_name("table")
+        field = bracket_node.child_by_field_name("field")
+        if not (table and field):
+            continue
+        if _is_ctx_table(table) and field.type == "string":
+            field_name = _get_string_value(field, source)
+            _add_ctx_access(field_name, bracket_node, field.start_point[0] + 1)
 
 
 def _is_lhs_of_assignment(node) -> bool:
@@ -517,6 +552,157 @@ def _is_lhs_of_assignment(node) -> bool:
             return False
         current = current.parent
     return False
+
+
+# ---------------------------------------------------------------------------
+# context.get() abstraction tracking
+# ---------------------------------------------------------------------------
+
+def _extract_context_module_accesses(root, source: bytes, ast: FileAST, binding_map: dict[str, str]):
+    """Extract field accesses on variables created by context.get("scope").
+
+    Detects the pattern:
+        local ctx = context.get("global_config")
+        ctx.is_deferrer = true    -- write to global_config.is_deferrer
+        ctx.component             -- read from global_config.component
+
+    This is a common abstraction over ngx.ctx used in OpenResty codebases.
+    """
+    # Find which variables are bound to a "context" module
+    context_modules = {"context", "ctx_module", "request_context"}
+    context_vars = set()
+    for var, mod in binding_map.items():
+        mod_base = mod.rsplit(".", 1)[-1] if "." in mod else mod
+        if mod_base in context_modules or "context" in mod.lower():
+            context_vars.add(var)
+
+    if not context_vars:
+        return
+
+    # Find: local ctx = context.get("scope_name")
+    # Maps: local_var_name → scope_name
+    scoped_vars: dict[str, str] = {}
+
+    for decl in _walk_all(root, "variable_declaration"):
+        assign = _first_child_of_type(decl, "assignment_statement")
+        if not assign:
+            continue
+        vl = _first_child_of_type(assign, "variable_list")
+        el = _first_child_of_type(assign, "expression_list")
+        if not (vl and el and vl.named_child_count > 0 and el.named_child_count > 0):
+            continue
+
+        call = el.named_children[0]
+        if call.type != "function_call":
+            continue
+
+        name_node = call.child_by_field_name("name")
+        if not name_node:
+            continue
+        callee = _text(name_node, source)
+
+        # Check if it's context_var.get("scope") or context_var.set("scope")
+        is_context_get = False
+        if name_node.type == "dot_index_expression":
+            table = name_node.child_by_field_name("table")
+            method = name_node.child_by_field_name("field")
+            if table and method:
+                if _text(table, source) in context_vars and _text(method, source) in ("get", "new", "create"):
+                    is_context_get = True
+
+        if not is_context_get:
+            continue
+
+        # Extract scope name from first argument
+        args = _first_child_of_type(call, "arguments")
+        if not args or args.named_child_count == 0:
+            continue
+        first_arg = args.named_children[0]
+        if first_arg.type == "string":
+            scope = _get_string_value(first_arg, source)
+        elif first_arg.type == "identifier":
+            # Variable reference like CTX — use the variable name as scope
+            scope = _text(first_arg, source)
+        else:
+            continue
+
+        var_node = vl.named_children[0]
+        if var_node.type == "identifier":
+            scoped_vars[_text(var_node, source)] = scope
+
+    if not scoped_vars:
+        return
+
+    written_locs: set[tuple[str, int]] = set()
+
+    # Now find field accesses on these scoped variables
+    # Pattern: ctx.field or ctx["field"]
+    for dot_node in _walk_all(root, "dot_index_expression"):
+        table = dot_node.child_by_field_name("table")
+        field_node = dot_node.child_by_field_name("field")
+        if not (table and field_node):
+            continue
+
+        table_text = _text(table, source) if table.type == "identifier" else None
+        if not table_text or table_text not in scoped_vars:
+            continue
+
+        scope = scoped_vars[table_text]
+        field_name = _text(field_node, source)
+        full_name = f"{scope}.{field_name}"
+        line = field_node.start_point[0] + 1
+        enclosing = _find_enclosing_function(dot_node, source)
+        is_write = _is_lhs_of_assignment(dot_node)
+        access_type = "write" if is_write else "read"
+
+        loc = (full_name, line)
+        if access_type == "write":
+            written_locs.add(loc)
+        elif loc in written_locs:
+            continue
+
+        ast.ctx_accesses.append(ContextAccess(
+            field_name=full_name,
+            access_type=access_type,
+            function=enclosing,
+            line=line,
+            scope=scope,
+        ))
+
+    for bracket_node in _walk_all(root, "bracket_index_expression"):
+        table = bracket_node.child_by_field_name("table")
+        field_node = bracket_node.child_by_field_name("field")
+        if not (table and field_node):
+            continue
+
+        table_text = _text(table, source) if table.type == "identifier" else None
+        if not table_text or table_text not in scoped_vars:
+            continue
+
+        if field_node.type != "string":
+            continue
+
+        scope = scoped_vars[table_text]
+        field_name = _get_string_value(field_node, source)
+        full_name = f"{scope}.{field_name}"
+        line = field_node.start_point[0] + 1
+        enclosing = _find_enclosing_function(bracket_node, source)
+        is_write = _is_lhs_of_assignment(bracket_node)
+        access_type = "write" if is_write else "read"
+
+        loc = (full_name, line)
+        if access_type == "write":
+            written_locs.add(loc)
+        elif loc in written_locs:
+            continue
+
+        ast.ctx_accesses.append(ContextAccess(
+            field_name=full_name,
+            access_type=access_type,
+            function=enclosing,
+            line=line,
+            scope=scope,
+        ))
 
 
 # ---------------------------------------------------------------------------
@@ -861,8 +1047,11 @@ def parse_lua_file(file_path: str) -> FileAST:
     # 6. Extract calls
     _extract_calls(root, source, ast, binding_map)
 
-    # 7. ngx.ctx accesses
+    # 7. ngx.ctx accesses (direct + aliased)
     _extract_ctx_accesses(root, source, ast)
+
+    # 7b. context.get() abstraction accesses
+    _extract_context_module_accesses(root, source, ast, binding_map)
 
     # 8. ngx.shared accesses
     _extract_shared_dict_accesses(root, source, ast)

@@ -104,9 +104,12 @@ def spot_check(file_path: str) -> str:
 
     # OpenResty-specific
     if ast.ctx_accesses:
-        lines.append(f"\nngx.ctx ACCESSES ({len(ast.ctx_accesses)}):")
+        lines.append(f"\nCONTEXT ACCESSES ({len(ast.ctx_accesses)}):")
         for ca in ast.ctx_accesses:
-            lines.append(f"  {ca.access_type}: ngx.ctx.{ca.field_name} in {ca.function}  (line {ca.line})")
+            if ca.scope:
+                lines.append(f"  {ca.access_type}: ctx({ca.scope}).{ca.field_name.split('.', 1)[-1]} in {ca.function}  (line {ca.line})")
+            else:
+                lines.append(f"  {ca.access_type}: ngx.ctx.{ca.field_name} in {ca.function}  (line {ca.line})")
 
     if ast.shared_dict_accesses:
         lines.append(f"\nngx.shared ACCESSES ({len(ast.shared_dict_accesses)}):")

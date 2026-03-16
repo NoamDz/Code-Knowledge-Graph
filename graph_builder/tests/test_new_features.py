@@ -199,6 +199,36 @@ def test_http_calls_python():
     print(f"  PASS: HTTP Python — {len(ast.http_calls)} calls detected")
 
 
+# --- Context module abstraction ---
+
+def test_context_module():
+    """Parser should detect context.get() abstraction over ngx.ctx."""
+    ast = parse_lua_file(str(LUA_FIXTURES / "context_module.lua"))
+
+    assert len(ast.ctx_accesses) >= 5, \
+        f"Expected >= 5 context accesses, got {len(ast.ctx_accesses)}: " \
+        f"{[(a.field_name, a.access_type, a.scope) for a in ast.ctx_accesses]}"
+
+    # Check scoped field names
+    field_names = {a.field_name for a in ast.ctx_accesses}
+    assert any("tree" in f for f in field_names), f"Missing tree field in {field_names}"
+    assert any("component" in f for f in field_names), f"Missing component field in {field_names}"
+    assert any("is_deferrer" in f for f in field_names), f"Missing is_deferrer field in {field_names}"
+
+    # Check scopes
+    scopes = {a.scope for a in ast.ctx_accesses if a.scope}
+    assert "global_config" in scopes, f"Missing global_config scope in {scopes}"
+
+    # Check read/write detection
+    writes = [a for a in ast.ctx_accesses if a.access_type == "write"]
+    reads = [a for a in ast.ctx_accesses if a.access_type == "read"]
+    assert len(writes) >= 3, f"Expected >= 3 writes, got {len(writes)}"
+    assert len(reads) >= 2, f"Expected >= 2 reads, got {len(reads)}"
+
+    print(f"  PASS: context module — {len(ast.ctx_accesses)} accesses "
+          f"({len(writes)} writes, {len(reads)} reads), scopes: {scopes}")
+
+
 # --- Python resolver ---
 
 def test_python_resolver():
@@ -228,6 +258,7 @@ def run_all():
         test_redis_python,
         test_http_calls_lua,
         test_http_calls_python,
+        test_context_module,
         test_python_resolver,
     ]
 

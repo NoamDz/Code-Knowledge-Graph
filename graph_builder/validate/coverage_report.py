@@ -59,6 +59,9 @@ class LanguageStats:
     files_without_exports: int = 0
     ctx_accesses: int = 0
     shared_dict_accesses: int = 0
+    internal_redirects: int = 0
+    redis_accesses: int = 0
+    http_calls: int = 0
     warnings: list[str] = field(default_factory=list)
     error_files: list[str] = field(default_factory=list)
     orphan_files: list[str] = field(default_factory=list)  # files with no imports in or out
@@ -127,6 +130,9 @@ def run_coverage_report(repo_root: str, nginx_conf: str | None = None) -> str:
                     stats.files_without_exports += 1
                 stats.ctx_accesses += len(ast.ctx_accesses)
                 stats.shared_dict_accesses += len(ast.shared_dict_accesses)
+                stats.internal_redirects += len(ast.internal_redirects)
+                stats.redis_accesses += len(ast.redis_accesses)
+                stats.http_calls += len(ast.http_calls)
                 stats.warnings.extend(ast.warnings)
             except Exception as e:
                 stats.parse_errors += 1
@@ -216,10 +222,27 @@ def run_coverage_report(repo_root: str, nginx_conf: str | None = None) -> str:
     # OpenResty-specific
     total_ctx = sum(s.ctx_accesses for s in lang_stats.values())
     total_shared = sum(s.shared_dict_accesses for s in lang_stats.values())
-    if total_ctx or total_shared:
-        lines.append(f"\n--- OPENRESTY ---")
-        lines.append(f"  ngx.ctx accesses:     {total_ctx}")
-        lines.append(f"  ngx.shared accesses:  {total_shared}")
+    total_redirects = sum(s.internal_redirects for s in lang_stats.values())
+    lines.append(f"\n--- OPENRESTY ---")
+    lines.append(f"  ngx.ctx accesses:     {total_ctx}")
+    lines.append(f"  ngx.shared accesses:  {total_shared}")
+    lines.append(f"  Internal redirects:   {total_redirects}")
+
+    # Cross-service communication
+    total_redis = sum(s.redis_accesses for s in lang_stats.values())
+    total_http = sum(s.http_calls for s in lang_stats.values())
+    if total_redis or total_http:
+        lines.append(f"\n--- CROSS-SERVICE ---")
+        lines.append(f"  Redis key accesses:   {total_redis}")
+        if total_redis:
+            redis_by_lang = {lang: s.redis_accesses for lang, s in lang_stats.items() if s.redis_accesses}
+            for lang, count in redis_by_lang.items():
+                lines.append(f"    {lang}: {count}")
+        lines.append(f"  HTTP client calls:    {total_http}")
+        if total_http:
+            http_by_lang = {lang: s.http_calls for lang, s in lang_stats.items() if s.http_calls}
+            for lang, count in http_by_lang.items():
+                lines.append(f"    {lang}: {count}")
 
     # Lua module patterns
     if "lua" in lang_stats:

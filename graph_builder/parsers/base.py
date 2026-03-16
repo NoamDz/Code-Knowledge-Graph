@@ -66,11 +66,16 @@ class CallRef:
 
 @dataclass
 class ContextAccess:
-    """An ngx.ctx field read or write (Lua/OpenResty specific)."""
-    field_name: str               # e.g., "user_id" from ngx.ctx.user_id
+    """An ngx.ctx field read or write (Lua/OpenResty specific).
+
+    Supports both raw ngx.ctx.field and abstracted context.get("scope").field patterns.
+    When a scope is present, field_name is "scope.field" (e.g., "global_config.is_deferrer").
+    """
+    field_name: str               # e.g., "user_id" or "global_config.is_deferrer"
     access_type: str              # "read" or "write"
     function: str                 # which function does this
     line: int
+    scope: str | None = None      # e.g., "global_config" from context.get("global_config")
 
 
 @dataclass
