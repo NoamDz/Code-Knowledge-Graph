@@ -1,3 +1,16 @@
+(.venv) il021250@Noams-MacBook-Pro Code-Knowledge-Graph % code-graph -c config.yml build
+Building code graph for: /Users/il021250/dev/pinpoint/src
+Scanning 1072 files...
+Parsed 1072 files (0 errors)
+  Lua package paths: 29 templates
+Resolving cross-file imports...
+Resolving cross-file calls...
+  Calls: 36675 total, 6435 resolved (17.5%)
+Ingesting into Memgraph...
+  Ingested 24 nginx locations
+  48356 graph writes
+
+Build completed in 212.5s
 (.venv) il021250@Noams-MacBook-Pro Code-Knowledge-Graph % code-graph -c config.yml validate
 
 ============================================================
@@ -55,8 +68,15 @@
   Calls per function:  6.0
 
 --- OPENRESTY ---
-  ngx.ctx accesses:     0
+  ngx.ctx accesses:     296
   ngx.shared accesses:  41
+  Internal redirects:   0
+
+--- CROSS-SERVICE ---
+  Redis key accesses:   6
+    lua: 6
+  HTTP client calls:    1
+    py: 1
 
 --- LUA MODULE PATTERNS ---
                      M: 581
@@ -66,8 +86,12 @@
                unknown: 8
                     _M: 3
 
---- NGINX CONFIG ERROR ---
-  [Errno 2] No such file or directory: '/data/kashmir/pinpoint/shared/nginx/config/nginx_pinpoint.conf'
+--- NGINX CONFIG ---
+  lua_package_path entries: 24
+  Shared dicts: 26
+  Locations: 0
+  Global Lua phases: 2
+  Location Lua phases: 0
 
 --- WARNINGS (28) ---
   ⚠ Dynamic require at line 10: require(string.format("tasks.%s", task_name))
@@ -92,29 +116,619 @@
   ⚠ Dynamic require at line 67: require("common.orm_models."..k)
   ... and 8 more
 
-  Report generated in 10.24s
+  Report generated in 10.98s
 
-(.venv) il021250@Noams-MacBook-Pro Code-Knowledge-Graph % grep -rn "ngx/.ctx" --include="*.lua" /Users/il021250/dev/pinpoint/src | head -20
-(.venv) il021250@Noams-MacBook-Pro Code-Knowledge-Graph % grep -rn "ngx/.ctx" --include="*.lua" /Users/il021250/dev/pinpoint/src/* | head -20
-(.venv) il021250@Noams-MacBook-Pro Code-Knowledge-Graph % grep -rn "ngx/.ctx" --include="*.lua" /Users/il021250/dev/pinpoint/src/ato | head -20
-(.venv) il021250@Noams-MacBook-Pro Code-Knowledge-Graph % grep -rn "ctx" --include="*.lua" /Users/il021250/dev/pinpoint/src/| head -20
-/Users/il021250/dev/pinpoint/src/core/openresty/global_init.lua:33:-- in some cases, after exit, for example ngx.exit(500), ngx.ctx will be empty at the log phase.
-/Users/il021250/dev/pinpoint/src/core/config/global_config/init.lua:67:  local ctx = context.get("global_config")
-/Users/il021250/dev/pinpoint/src/core/config/global_config/init.lua:68:  ctx.is_deferrer = true
-/Users/il021250/dev/pinpoint/src/core/config/global_config/init.lua:72:  local ctx = context.get("global_config")
-/Users/il021250/dev/pinpoint/src/core/config/global_config/init.lua:73:  ctx.is_deferrer = false
-/Users/il021250/dev/pinpoint/src/core/config/global_config/init.lua:99:  local ctx = context.get("global_config")
-/Users/il021250/dev/pinpoint/src/core/config/global_config/init.lua:100:  if ctx.component == nil then
-/Users/il021250/dev/pinpoint/src/core/config/global_config/init.lua:101:    ctx.component = "common"
-/Users/il021250/dev/pinpoint/src/core/config/global_config/init.lua:103:  if ctx.is_deferrer == nil then
-/Users/il021250/dev/pinpoint/src/core/config/global_config/init.lua:104:    ctx.is_deferrer = false
-/Users/il021250/dev/pinpoint/src/core/config/global_config/init.lua:106:  return ctx
-/Users/il021250/dev/pinpoint/src/core/config/global_config/init.lua:122:      local ctx = context.get("global_config")
-/Users/il021250/dev/pinpoint/src/core/config/global_config/init.lua:123:      ctx.component = tostring(component)
-/Users/il021250/dev/pinpoint/src/core/triggers.lua:75:  local ctx = context.get(CTX)
-/Users/il021250/dev/pinpoint/src/core/triggers.lua:76:  local existing_context = ctx.tree or {}
-/Users/il021250/dev/pinpoint/src/core/triggers.lua:78:  ctx.tree = table_utils.update_table(trigger.active_tree or {}, existing_context)
-/Users/il021250/dev/pinpoint/src/core/triggers.lua:80:  ctx.tree = existing_context
-/Users/il021250/dev/pinpoint/src/core/triggers.lua:100:  local ctx = context.get(CTX)
-/Users/il021250/dev/pinpoint/src/core/triggers.lua:107:  for trigger in pop_iterator, (ctx.pending_triggers or {}) do
-/Users/il021250/dev/pinpoint/src/core/triggers.lua:157:  local ctx = context.get(CTX)
+(.venv) il021250@Noams-MacBook-Pro Code-Knowledge-Graph % code-graph spot-check /Users/il021250/dev/pinpoint/src/core/config/global_config/init.lua
+============================================================
+Spot Check: /Users/il021250/dev/pinpoint/src/core/config/global_config/init.lua
+============================================================
+
+SOURCE: 128 lines, language: lua
+
+MODULE PATTERN: M
+  Table variable: M
+  Returns: M
+
+FUNCTIONS (5):
+  ✓ M.enable_deferrer()  lines 66-69  vis=public
+  ✓ M.disable_deferrer()  lines 71-74  vis=public
+  ✓ M.get(key, def_val)  lines 76-96  vis=public
+  ✓ M.get_system_keys()  lines 98-107  vis=public
+  ✓ M.init(component)  lines 110-126  vis=public
+
+EXPORTS (12): event_queue_handler_prefix, DEFERRER_ENGINE, versions, root_dir, ua_source_path, get_system_keys, init, __index, enable_deferrer, conditional_collect_key, get, disable_deferrer
+
+IMPORTS (3):
+  require: "loader.lua"  (line 1)
+  require: "lib.lua.context" as context  (line 3)
+  require: "loader.lua"  (line 8)
+
+CALLS (24):
+  <module> → require_version  (line 2)
+  <module> → format  (line 31)
+  <module> → format  (line 32)
+  <module> → format  (line 33)
+  <module> → format  (line 34)
+  <module> → format  (line 35)
+  <module> → format  (line 36)
+  <module> → setmetatable  (line 46)
+  <module> → format  (line 59)
+  M.enable_deferrer → context.get → lib.lua.context.get  (line 67)
+  M.disable_deferrer → context.get → lib.lua.context.get  (line 72)
+  M.get → type  (line 79)
+  M.get → error  (line 80)
+  M.get → tostring  (line 80)
+  M.get → iparts  (line 84)
+  M.get → type  (line 85)
+  M.get → rawget  (line 85)
+  M.get → type  (line 91)
+  M.get_system_keys → context.get → lib.lua.context.get  (line 99)
+  M.init → shared_config.is_initiated  (line 112)
+  M.init → pairs  (line 113)
+  M.init → type  (line 114)
+  M.init → context.get → lib.lua.context.get  (line 122)
+  M.init → tostring  (line 123)
+
+CONTEXT ACCESSES (7):
+  write: ctx(global_config).is_deferrer in M.enable_deferrer  (line 68)
+  write: ctx(global_config).is_deferrer in M.disable_deferrer  (line 73)
+  read: ctx(global_config).component in M.get_system_keys  (line 100)
+  write: ctx(global_config).component in M.get_system_keys  (line 101)
+  read: ctx(global_config).is_deferrer in M.get_system_keys  (line 103)
+  write: ctx(global_config).is_deferrer in M.get_system_keys  (line 104)
+  write: ctx(global_config).component in M.init  (line 123)
+
+(.venv) il021250@Noams-MacBook-Pro Code-Knowledge-Graph % code-graph spot-check /Users/il021250/dev/pinpoint/src/core/triggers.lua
+============================================================
+Spot Check: /Users/il021250/dev/pinpoint/src/core/triggers.lua
+============================================================
+
+SOURCE: 263 lines, language: lua
+
+MODULE PATTERN: M
+  Table variable: M
+  Returns: M
+
+FUNCTIONS (15):
+  ○ pop_iterator(_table)  lines 25-27  vis=local
+  ○ triggers_key(session_id)  lines 29-31  vis=local
+  ○ generate_pretty_traceback(name)  lines 33-39  vis=local
+  ○ send_triggers_task(session_id, bundle_key)  lines 41-49  vis=local
+  ○ is_bound(self, trigger)  lines 51-57  vis=local
+  ○ is_valid_trigger(trigger)  lines 59-65  vis=local
+  ○ run_deferred_trigger(bundle, store, encoded)  lines 67-81  vis=local
+  ○ add_delayed_trigger(list, trigger)  lines 83-96  vis=local
+  ✓ M.process_pending(bundle, store)  lines 99-115  vis=public
+  ○ process_deferred_unlocked(bundle, store)  lines 117-136  vis=local
+  ✓ M.process_deferred(bundle, store)  lines 138-146  vis=public
+  ✓ M.send_pending(session_id, bundle_key)  lines 150-186  vis=public
+  ✓ M.bind(name, callback)  lines 188-200  vis=public
+  ✓ M.fire(bundle, store, name, data)  lines 203-225  vis=public
+  ✓ M.defer(name, data, options)  lines 228-260  vis=public
+
+EXPORTS (8): process_deferred, send_pending, bind, process_pending, defer, __index, fire, triggers
+
+IMPORTS (9):
+  require: "config" as config  (line 1)
+  require: "cjson" as cjson  (line 2)
+  require: "lib.lua.logger" as logger  (line 3)
+  require: "lib.lua.context" as context  (line 4)
+  require: "lib.lua.redis_helper" as redis_helper  (line 5)
+  require: "deferrer.sqs.client" as aggregator_client  (line 6)
+  require: "utils.lua.request_timer" as request_timer  (line 7)
+  require: "features.lua" as features  (line 8)
+  require: "lib.lua.table_utils" as table_utils  (line 9)
+
+CALLS (81):
+  <module> → tonumber  (line 13)
+  <module> → config.get → config.get  (line 13)
+  <module> → tonumber  (line 14)
+  <module> → config.get → config.get  (line 14)
+  <module> → tonumber  (line 17)
+  <module> → config.get → config.get  (line 17)
+  <module> → features.enabled → features.lua.enabled  (line 19)
+  pop_iterator → table.remove  (line 26)
+  triggers_key → string.format  (line 30)
+  generate_pretty_traceback → debug.traceback():gsub  (line 35)
+  generate_pretty_traceback → debug.traceback  (line 35)
+  generate_pretty_traceback → logger.err → lib.lua.logger.err  (line 36)
+  send_triggers_task → aggregator_client.add_task → deferrer.sqs.client.add_task  (line 48)
+  is_valid_trigger → type  (line 61)
+  is_valid_trigger → type  (line 62)
+  is_valid_trigger → type  (line 63)
+  run_deferred_trigger → cjson.decode [pcall] → cjson.decode  (line 68)
+  run_deferred_trigger → is_valid_trigger  (line 70)
+  run_deferred_trigger → context.get → lib.lua.context.get  (line 75)
+  run_deferred_trigger → table_utils.update_table → lib.lua.table_utils.update_table  (line 78)
+  run_deferred_trigger → M.fire  (line 79)
+  add_delayed_trigger → is_bound  (line 84)
+  add_delayed_trigger → cjson.encode [pcall] → cjson.encode  (line 88)
+  add_delayed_trigger → logger.err → lib.lua.logger.err  (line 91)
+  add_delayed_trigger → table.insert  (line 95)
+  M.process_pending → context.get → lib.lua.context.get  (line 100)
+  M.process_pending → request_timer.start → utils.lua.request_timer.start  (line 106)
+  M.process_pending → is_valid_trigger  (line 108)
+  M.process_pending → M.fire  (line 109)
+  M.process_pending → logger.err → lib.lua.logger.err  (line 111)
+  M.process_pending → type  (line 111)
+  M.process_pending → request_timer.stop → utils.lua.request_timer.stop  (line 114)
+  process_deferred_unlocked → request_timer.start → utils.lua.request_timer.start  (line 120)
+  process_deferred_unlocked → triggers_key  (line 121)
+  process_deferred_unlocked → redis_helper:right_pop → lib.lua.redis_helper.right_pop  (line 123)
+  process_deferred_unlocked → run_deferred_trigger  (line 128)
+  process_deferred_unlocked → redis_helper:right_pop → lib.lua.redis_helper.right_pop  (line 131)
+  process_deferred_unlocked → logger.info → lib.lua.logger.info  (line 132)
+  process_deferred_unlocked → string.format  (line 132)
+  process_deferred_unlocked → request_timer.stop → utils.lua.request_timer.stop  (line 135)
+  M.process_deferred → process_deferred_unlocked  (line 143)
+  M.process_deferred → M.process_pending  (line 145)
+  M.send_pending → request_timer.start → utils.lua.request_timer.start  (line 155)
+  M.send_pending → context.get → lib.lua.context.get  (line 157)
+  M.send_pending → add_delayed_trigger  (line 162)
+  M.send_pending → request_timer.stop → utils.lua.request_timer.stop  (line 167)
+  M.send_pending → triggers_key  (line 171)
+  M.send_pending → redis_helper:pipeline → lib.lua.redis_helper.pipeline  (line 173)
+  M.send_pending → redis_helper:left_push → lib.lua.redis_helper.left_push  (line 174)
+  M.send_pending → unpack  (line 174)
+  M.send_pending → redis_helper:expire → lib.lua.redis_helper.expire  (line 175)
+  M.send_pending → send_triggers_task  (line 181)
+  M.send_pending → logger.info → lib.lua.logger.info  (line 182)
+  M.send_pending → string.format  (line 182)
+  M.send_pending → request_timer.stop → utils.lua.request_timer.stop  (line 185)
+  M.bind → assert  (line 189)
+  M.bind → assert  (line 190)
+  M.bind → type  (line 190)
+  M.bind → features.disabled → features.lua.disabled  (line 192)
+  M.bind → string.format  (line 192)
+  M.bind → table.insert  (line 197)
+  M.fire → context.get → lib.lua.context.get  (line 204)
+  M.fire → logger.err → lib.lua.logger.err  (line 208)
+  M.fire → debug.traceback  (line 208)
+  M.fire → string.format  (line 212)
+  M.fire → request_timer.start → utils.lua.request_timer.start  (line 213)
+  M.fire → generate_pretty_traceback  (line 217)
+  M.fire → ipairs  (line 218)
+  M.fire → callback [pcall]  (line 220)
+  M.fire → request_timer.stop → utils.lua.request_timer.stop  (line 222)
+  M.defer → context.get → lib.lua.context.get  (line 229)
+  M.defer → logger.err → lib.lua.logger.err  (line 234)
+  M.defer → debug.traceback  (line 234)
+  M.defer → debug.traceback():gsub  (line 239)
+  M.defer → debug.traceback  (line 239)
+  M.defer → logger.err → lib.lua.logger.err  (line 240)
+  M.defer → string.format  (line 240)
+  M.defer → ipairs  (line 246)
+  M.defer → table_utils.copy_table → lib.lua.table_utils.copy_table  (line 249)
+  M.defer → table.insert  (line 255)
+  M.defer → table_utils.copy_table → lib.lua.table_utils.copy_table  (line 258)
+
+CONTEXT ACCESSES (16):
+  read: ctx(CTX).tree in run_deferred_trigger  (line 76)
+  write: ctx(CTX).tree in run_deferred_trigger  (line 78)
+  write: ctx(CTX).tree in run_deferred_trigger  (line 80)
+  read: ctx(CTX).pending_triggers in M.process_pending  (line 107)
+  read: ctx(CTX).pending_triggers in M.send_pending  (line 158)
+  write: ctx(CTX).pending_triggers in M.send_pending  (line 178)
+  write: ctx(CTX).tree in M.fire  (line 205)
+  read: ctx(CTX).tree in M.fire  (line 207)
+  write: ctx(CTX).tree in M.fire  (line 214)
+  write: ctx(CTX).tree in M.fire  (line 224)
+  write: ctx(CTX).pending_triggers in M.defer  (line 230)
+  write: ctx(CTX).tree in M.defer  (line 231)
+  read: ctx(CTX).tree in M.defer  (line 233)
+  read: ctx(CTX).pending_triggers in M.defer  (line 246)
+  read: ctx(CTX).pending_triggers in M.defer  (line 255)
+  read: ctx(CTX).tree in M.defer  (line 258)
+
+(.venv) il021250@Noams-MacBook-Pro Code-Knowledge-Graph % code-graph spot-check /Users/il021250/dev/pinpoint/src/lib/lua/redis_helper.lua
+============================================================
+Spot Check: /Users/il021250/dev/pinpoint/src/lib/lua/redis_helper.lua
+============================================================
+
+SOURCE: 997 lines, language: lua
+
+MODULE PATTERN: named
+  Table variable: M_exposed
+  Returns: M_exposed
+
+FUNCTIONS (62):
+  ○ timems_diff(startTime)  lines 22-27  vis=local
+  ○ stats_and_log(prefix, start_time, elapsed_time, additional_fields)  lines 30-44  vis=local
+  ○ create_client_wrapper(original_client)  lines 63-109  vis=local
+  ○ params_fill_serv_list(params)  lines 111-119  vis=local
+  ○ connect()  lines 121-138  vis=local
+  ○ connect_glider()  lines 140-153  vis=local
+  ○ error_handler(cmd, func, s)  lines 155-164  vis=local
+  ○ prepare_params()  lines 250-290  vis=local
+  ✓ M_exposed.init()  lines 292-296  vis=public
+  ○ get_type_in_db(client, key)  lines 298-300  vis=local
+  ○ try_tonumber(str)  lines 302-304  vis=local
+  ○ try_string_to_bool(str)  lines 306-311  vis=local
+  ○ get_scalar(client, key)  lines 315-317  vis=local
+  ○ get_table(client, key)  lines 319-324  vis=local
+  ○ unsupported_type(value_type)  lines 326-331  vis=local
+  ○ M:get(key)  lines 343-353  vis=local [method]
+  ○ M:get_as_string(key)  lines 355-361  vis=local [method]
+  ○ M:get_json(key)  lines 363-369  vis=local [method]
+  ○ M:hget(key, sub_key)  lines 371-378  vis=local [method]
+  ○ M:hgetall(key)  lines 380-389  vis=local [method]
+  ○ delete_anything(client, key)  lines 392-394  vis=local
+  ○ M:delete(key)  lines 396-401  vis=local [method]
+  ○ set_scalar(client, key, value)  lines 404-406  vis=local
+  ○ set_table(client, key, value)  lines 408-418  vis=local
+  ○ M:set(key, value)  lines 427-432  vis=local [method]
+  ○ M:hsetall(key, data, ttl)  lines 434-444  vis=local [method]
+  ○ M:set_json(key, value)  lines 446-451  vis=local [method]
+  ○ M:atomic_hgethset(key, subkey, value)  lines 453-485  vis=local [method]
+  ○ M:atomic_getset(key, value)  lines 487-504  vis=local [method]
+  ○ M:setnx(key, value)  lines 506-513  vis=local [method]
+  ○ M:hsetnx(key, sub_key, value)  lines 515-522  vis=local [method]
+  ○ M:hset(key, sub_key, value)  lines 524-530  vis=local [method]
+  ○ M:hdel(key, sub_key)  lines 532-538  vis=local [method]
+  ○ M:hdel_many(key, sub_keys)  lines 540-547  vis=local [method]
+  ○ M:incr(key, increment)  lines 549-563  vis=local [method]
+  ○ M:hincr(key, sub_key, increment)  lines 565-575  vis=local [method]
+  ○ M:hkeys(key)  lines 577-584  vis=local [method]
+  ○ M:hmget(key, values)  lines 586-593  vis=local [method]
+  ○ M:hmset(params)  lines 595-602  vis=local [method]
+  ○ M:hlen(key)  lines 604-611  vis=local [method]
+  ○ M:exists(key)  lines 613-620  vis=local [method]
+  ○ M:exists_and_hsetnx(key, sub_key, value)  lines 622-639  vis=local [method]
+  ○ M:exists_and_hincr(key, sub_key, increment)  lines 646-665  vis=local [method]
+  ○ M:get_time(key, normalize)  lines 676-694  vis=local [method]
+  ○ M:set_with_expire_once(key, field, ttl)  lines 696-717  vis=local [method]
+  ○ M:set_with_expire(key, value, ttl)  lines 719-726  vis=local [method]
+  ○ M:setex_with_expire(key, value, ttl)  lines 728-742  vis=local [method]
+  ○ M:setnx_with_expire(key, value, ttl)  lines 744-763  vis=local [method]
+  ○ M:incr_with_expire_once(key, ttl)  lines 765-782  vis=local [method]
+  ○ M:hset_with_expire(key, sub_key, value, ttl)  lines 785-797  vis=local [method]
+  ○ M:hsetnx_with_expire(key, sub_key, value, ttl)  lines 800-815  vis=local [method]
+  ○ M:hset_update(key, keys_to_delete, keys_to_update)  lines 817-824  vis=local [method]
+  ○ M:hset_with_limit(key, sub_key, value, limit, ttl)  lines 826-844  vis=local [method]
+  ○ M:hset_with_limit_expire_once(key, sub_key, value, limit, ttl)  lines 846-864  vis=local [method]
+  ○ M:lock(action, session_id, ttl)  lines 867-870  vis=local [method]
+  ○ M:unlock(action, session_id)  lines 872-875  vis=local [method]
+  ○ M:pipeline(callback, ignore_replies)  lines 877-898  vis=local [method]
+  ○ M:expire(key, ttl)  lines 901-908  vis=local [method]
+  ○ M:ttl(key)  lines 911-918  vis=local [method]
+  ○ M:right_pop(key, amount)  lines 920-934  vis=local [method]
+  ○ M:left_push(key)  lines 936-948  vis=local [method]
+  ○ M:get_info()  lines 951-993  vis=local [method]
+
+EXPORTS (3): init, hooks, async
+
+IMPORTS (15):
+  require: "lib.lua.redis.rediscluster" as Redis  (line 1)
+  require: "resty.redis" as Redis_glider  (line 2)
+  require: "cjson" as CJSON  (line 4)
+  require: "config" as Config  (line 5)
+  require: "lib.lua.socket" as socket  (line 6)
+  require: "lib.lua.logger" as Logger  (line 7)
+  require: "lib.lua.telegraf_stats" as telegraf_stats  (line 8)
+  require: "features.lua" as features  (line 9)
+  require: "lib.lua.context" as context  (line 10)
+  require: "ato.structured_policy.rules_watcher" as rules_watcher  (line 11)
+  require: "common.async_timers.redis_dns_timer" as redis_dns_timer  (line 12)
+  require: "common.async_timers.redis_async_timer" as RedisAsyncTimer  (line 17)
+  require: "lib.lua.utils"  (line 56)
+  require: "lib.lua.table_utils"  (line 57)
+  require: "lib.lua.latency_timer"  (line 293)
+
+CALLS (303):
+  <module> → features.enabled → features.lua.enabled  (line 14)
+  <module> → features.enabled → features.lua.enabled  (line 15)
+  <module> → features.enabled → features.lua.enabled  (line 16)
+  <module> → Config.get → config.get  (line 16)
+  timems_diff → socket.gettime → lib.lua.socket.gettime  (line 24)
+  timems_diff → socket.gettime → lib.lua.socket.gettime  (line 26)
+  stats_and_log → string.format  (line 33)
+  stats_and_log → string.format  (line 34)
+  stats_and_log → telegraf_stats.timer → lib.lua.telegraf_stats.timer  (line 38)
+  stats_and_log → telegraf_stats.increment → lib.lua.telegraf_stats.increment  (line 39)
+  stats_and_log → Logger.external_resource_log → lib.lua.logger.external_resource_log  (line 42)
+  create_client_wrapper → setmetatable  (line 65)
+  create_client_wrapper → key:lower  (line 67)
+  ref → timems_diff  (line 72)
+  ref → original_client[key]  (line 73)
+  ref → math.min  (line 74)
+  ref → math.max  (line 74)
+  ref → timems_diff  (line 78)
+  ref → original_client[key]  (line 79)
+  ref → string.format  (line 80)
+  ref → Logger.system.info → lib.lua.logger.system.info  (line 81)
+  ref → rules_watcher.add_ms → ato.structured_policy.rules_watcher.add_ms  (line 85)
+  ref → timems_diff  (line 85)
+  ref → Logger.system.err → lib.lua.logger.system.err  (line 88)
+  ref → error  (line 89)
+  ref → format  (line 89)
+  ref → type  (line 94)
+  ref → pairs  (line 95)
+  create_client_wrapper → rawset  (line 104)
+  params_fill_serv_list → redis_dns_timer.get_host → common.async_timers.redis_dns_timer.get_host  (line 112)
+  params_fill_serv_list → error  (line 114)
+  connect → context.get → lib.lua.context.get  (line 122)
+  connect → TableUtils.copy_table  (line 125)
+  connect → params_fill_serv_list  (line 128)
+  connect → Redis:new → lib.lua.redis.rediscluster.new  (line 131)
+  connect → Logger.system.err → lib.lua.logger.system.err  (line 134)
+  connect → error  (line 135)
+  connect → format  (line 135)
+  connect → create_client_wrapper  (line 137)
+  connect_glider → context.get → lib.lua.context.get  (line 141)
+  connect_glider → Config.get → config.get  (line 143)
+  connect_glider → string.format  (line 144)
+  connect_glider → Redis_glider:new → resty.redis.new  (line 146)
+  connect_glider → client:connect  (line 147)
+  connect_glider → Logger.system.err → lib.lua.logger.system.err  (line 149)
+  connect_glider → error  (line 150)
+  connect_glider → format  (line 150)
+  connect_glider → create_client_wrapper  (line 152)
+  error_handler → func [pcall]  (line 156)
+  error_handler → table.remove  (line 157)
+  error_handler → Logger.system.err → lib.lua.logger.system.err  (line 160)
+  error_handler → error  (line 161)
+  error_handler → format  (line 161)
+  error_handler → unpack  (line 163)
+  <module> → setmetatable  (line 167)
+  <module> → type  (line 169)
+  ref → table.remove  (line 174)
+  ref → context.get → lib.lua.context.get  (line 175)
+  ref → connect_glider  (line 178)
+  ref → connect  (line 180)
+  ref → error_handler  (line 184)
+  ref → unpack  (line 186)
+  <module> → rawset  (line 188)
+  <module> → setmetatable  (line 224)
+  <module> → error  (line 228)
+  <module> → type  (line 232)
+  <module> → error  (line 233)
+  async_fn → RedisAsyncTimer.add_to_queue → common.async_timers.redis_async_timer.add_to_queue  (line 239)
+  <module> → rawset  (line 242)
+  <module> → Logger.system.err → lib.lua.logger.system.err  (line 246)
+  prepare_params → TableUtils.copy_table  (line 252)
+  prepare_params → context.get_pool_params → lib.lua.context.get_pool_params  (line 263)
+  prepare_params → context.get_keepalive_timeout → lib.lua.context.get_keepalive_timeout  (line 282)
+  M_exposed.init → prepare_params  (line 294)
+  get_type_in_db → client:type  (line 299)
+  try_tonumber → tonumber  (line 303)
+  try_string_to_bool → Utils.string_to_bool  (line 307)
+  get_scalar → try_tonumber  (line 316)
+  get_scalar → try_string_to_bool  (line 316)
+  get_scalar → client:get  (line 316)
+  get_table → client:hgetall  (line 320)
+  get_table → TableUtils.key_value_array_to_table  (line 321)
+  get_table → pairs  (line 322)
+  get_table → try_tonumber  (line 322)
+  get_table → try_string_to_bool  (line 322)
+  unsupported_type → error  (line 329)
+  unsupported_type → format  (line 329)
+  <module> → unsupported_type  (line 335)
+  <module> → unsupported_type  (line 336)
+  <module> → unsupported_type  (line 337)
+  <module> → unsupported_type  (line 339)
+  <module> → unsupported_type  (line 340)
+  M:get → get_type_in_db  (line 344)
+  M:get → Logger.system.err → lib.lua.logger.system.err  (line 346)
+  M:get → format  (line 346)
+  M:get → allowed_type_handlers[value_type]  (line 349)
+  M:get_as_string → timems_diff  (line 356)
+  M:get_as_string → self.client:get  (line 357)
+  M:get_as_string → timems_diff  (line 358)
+  M:get_as_string → stats_and_log  (line 359)
+  M:get_json → timems_diff  (line 364)
+  M:get_json → CJSON.encode → cjson.encode  (line 365)
+  M:get_json → M_exposed:get  (line 365)
+  M:get_json → timems_diff  (line 366)
+  M:get_json → stats_and_log  (line 367)
+  M:hget → timems_diff  (line 372)
+  M:hget → self.client:hget  (line 373)
+  M:hget → timems_diff  (line 374)
+  M:hget → latency_timer.insert_runtime  (line 375)
+  M:hget → stats_and_log  (line 376)
+  M:hgetall → timems_diff  (line 381)
+  M:hgetall → self.client:hgetall  (line 383)
+  M:hgetall → TableUtils.key_value_array_to_table  (line 384)
+  M:hgetall → timems_diff  (line 385)
+  M:hgetall → latency_timer.insert_runtime  (line 386)
+  M:hgetall → stats_and_log  (line 387)
+  delete_anything → client:del  (line 393)
+  M:delete → timems_diff  (line 397)
+  M:delete → delete_anything  (line 398)
+  M:delete → timems_diff  (line 399)
+  M:delete → stats_and_log  (line 400)
+  set_scalar → client:set  (line 405)
+  set_table → delete_anything  (line 409)
+  set_table → pairs  (line 411)
+  set_table → type  (line 412)
+  set_table → error  (line 412)
+  set_table → pairs  (line 415)
+  set_table → client:hset  (line 416)
+  M:set → timems_diff  (line 428)
+  M:set → set_functions[type(value)]  (line 429)
+  M:set → type  (line 429)
+  M:set → timems_diff  (line 430)
+  M:set → stats_and_log  (line 431)
+  M:hsetall → pairs  (line 436)
+  M:hsetall → type  (line 438)
+  M:hsetall → CJSON.encode → cjson.encode  (line 438)
+  M:hsetall → M_exposed:hmset  (line 441)
+  M:hsetall → M_exposed:expire  (line 442)
+  M:set_json → timems_diff  (line 447)
+  M:set_json → M_exposed:set  (line 448)
+  M:set_json → CJSON.decode → cjson.decode  (line 448)
+  M:set_json → timems_diff  (line 449)
+  M:set_json → stats_and_log  (line 450)
+  M:atomic_hgethset → timems_diff  (line 469)
+  M:atomic_hgethset → self.client:eval  (line 470)
+  M:atomic_hgethset → timems_diff  (line 471)
+  M:atomic_hgethset → latency_timer.insert_runtime  (line 473)
+  M:atomic_hgethset → stats_and_log  (line 474)
+  M:atomic_getset → timems_diff  (line 498)
+  M:atomic_getset → self.client:eval  (line 499)
+  M:atomic_getset → timems_diff  (line 500)
+  M:atomic_getset → latency_timer.insert_runtime  (line 501)
+  M:atomic_getset → stats_and_log  (line 502)
+  M:setnx → timems_diff  (line 507)
+  M:setnx → self.client:setnx  (line 508)
+  M:setnx → timems_diff  (line 509)
+  M:setnx → latency_timer.insert_runtime  (line 510)
+  M:setnx → stats_and_log  (line 511)
+  M:hsetnx → timems_diff  (line 516)
+  M:hsetnx → self.client:hsetnx  (line 517)
+  M:hsetnx → timems_diff  (line 518)
+  M:hsetnx → latency_timer.insert_runtime  (line 519)
+  M:hsetnx → stats_and_log  (line 520)
+  M:hset → timems_diff  (line 525)
+  M:hset → self.client:hset  (line 526)
+  M:hset → timems_diff  (line 527)
+  M:hset → latency_timer.insert_runtime  (line 528)
+  M:hset → stats_and_log  (line 529)
+  M:hdel → timems_diff  (line 533)
+  M:hdel → self.client:hdel  (line 534)
+  M:hdel → timems_diff  (line 535)
+  M:hdel → latency_timer.insert_runtime  (line 536)
+  M:hdel → stats_and_log  (line 537)
+  M:hdel_many → TableUtils.is_empty  (line 541)
+  M:hdel_many → timems_diff  (line 542)
+  M:hdel_many → self.client:hdel  (line 543)
+  M:hdel_many → unpack  (line 543)
+  M:hdel_many → timems_diff  (line 544)
+  M:hdel_many → stats_and_log  (line 545)
+  M:incr → timems_diff  (line 552)
+  M:incr → self.client:incr  (line 554)
+  M:incr → self.client:incrby  (line 556)
+  M:incr → timems_diff  (line 558)
+  M:incr → latency_timer.insert_runtime  (line 559)
+  M:incr → stats_and_log  (line 560)
+  M:hincr → timems_diff  (line 566)
+  M:hincr → self.client:hincrby  (line 570)
+  M:hincr → timems_diff  (line 571)
+  M:hincr → latency_timer.insert_runtime  (line 572)
+  M:hincr → stats_and_log  (line 573)
+  M:hkeys → timems_diff  (line 578)
+  M:hkeys → self.client:hkeys  (line 579)
+  M:hkeys → timems_diff  (line 580)
+  M:hkeys → latency_timer.insert_runtime  (line 581)
+  M:hkeys → stats_and_log  (line 582)
+  M:hmget → timems_diff  (line 587)
+  M:hmget → self.client:hmget  (line 588)
+  M:hmget → unpack  (line 588)
+  M:hmget → timems_diff  (line 589)
+  M:hmget → latency_timer.insert_runtime  (line 590)
+  M:hmget → stats_and_log  (line 591)
+  M:hmset → timems_diff  (line 596)
+  M:hmset → self.client:hmset  (line 597)
+  M:hmset → unpack  (line 597)
+  M:hmset → timems_diff  (line 598)
+  M:hmset → latency_timer.insert_runtime  (line 599)
+  M:hmset → stats_and_log  (line 600)
+  M:hlen → timems_diff  (line 605)
+  M:hlen → self.client:hlen  (line 606)
+  M:hlen → timems_diff  (line 607)
+  M:hlen → latency_timer.insert_runtime  (line 608)
+  M:hlen → stats_and_log  (line 609)
+  M:exists → timems_diff  (line 614)
+  M:exists → self.client:exists  (line 615)
+  M:exists → timems_diff  (line 616)
+  M:exists → latency_timer.insert_runtime  (line 617)
+  M:exists → stats_and_log  (line 618)
+  M:exists_and_hsetnx → self.client:eval  (line 638)
+  M:exists_and_hincr → self.client:eval  (line 664)
+  M:get_time → self.client:eval  (line 681)
+  M:get_time → type  (line 683)
+  M:get_time → unpack  (line 687)
+  M:get_time → type  (line 688)
+  M:get_time → tonumber  (line 692)
+  M:get_time → format  (line 692)
+  M:get_time → ms:sub  (line 692)
+  M:get_time → tonumber  (line 693)
+  M:get_time → format  (line 693)
+  M:set_with_expire_once → self.client:eval  (line 716)
+  M:set_with_expire → timems_diff  (line 720)
+  M:set_with_expire → self.client:set  (line 721)
+  M:set_with_expire → timems_diff  (line 722)
+  M:set_with_expire → latency_timer.insert_runtime  (line 723)
+  M:set_with_expire → stats_and_log  (line 724)
+  M:setex_with_expire → self.client:eval  (line 741)
+  M:setnx_with_expire → self.client:eval  (line 761)
+  M:incr_with_expire_once → self.client:eval  (line 781)
+  M:hset_with_expire → timems_diff  (line 786)
+  M:hset_with_expire → self.client:eval  (line 792)
+  M:hset_with_expire → timems_diff  (line 793)
+  M:hset_with_expire → latency_timer.insert_runtime  (line 794)
+  M:hset_with_expire → stats_and_log  (line 795)
+  M:hsetnx_with_expire → timems_diff  (line 801)
+  M:hsetnx_with_expire → self.client:eval  (line 810)
+  M:hsetnx_with_expire → timems_diff  (line 811)
+  M:hsetnx_with_expire → latency_timer.insert_runtime  (line 812)
+  M:hsetnx_with_expire → stats_and_log  (line 813)
+  M:hset_update → type  (line 818)
+  M:hset_update → M_exposed:hdel_many  (line 819)
+  M:hset_update → type  (line 821)
+  M:hset_update → M_exposed:hmset  (line 822)
+  M:hset_with_limit → self.client:eval  (line 843)
+  M:hset_with_limit_expire_once → self.client:eval  (line 863)
+  M:lock → format  (line 868)
+  M:lock → M_exposed:setnx_with_expire  (line 869)
+  M:unlock → format  (line 873)
+  M:unlock → self.client:del  (line 874)
+  M:pipeline → type  (line 879)
+  M:pipeline → error  (line 880)
+  M:pipeline → timems_diff  (line 882)
+  M:pipeline → self.client:init_pipeline  (line 883)
+  M:pipeline → callback [pcall]  (line 884)
+  M:pipeline → self.client:cancel_pipeline  (line 886)
+  M:pipeline → error  (line 887)
+  M:pipeline → self.client:commit_pipeline  (line 889)
+  M:pipeline → error  (line 891)
+  M:pipeline → timems_diff  (line 894)
+  M:pipeline → latency_timer.insert_runtime  (line 895)
+  M:pipeline → stats_and_log  (line 896)
+  M:expire → timems_diff  (line 902)
+  M:expire → self.client:expire  (line 903)
+  M:expire → timems_diff  (line 904)
+  M:expire → latency_timer.insert_runtime  (line 905)
+  M:expire → stats_and_log  (line 906)
+  M:expire → CJSON.encode → cjson.encode  (line 906)
+  M:ttl → timems_diff  (line 912)
+  M:ttl → self.client:ttl  (line 913)
+  M:ttl → timems_diff  (line 914)
+  M:ttl → latency_timer.insert_runtime  (line 915)
+  M:ttl → stats_and_log  (line 916)
+  M:right_pop → tonumber  (line 921)
+  M:right_pop → timems_diff  (line 923)
+  M:right_pop → self.client:rpop  (line 924)
+  M:right_pop → timems_diff  (line 925)
+  M:right_pop → latency_timer.insert_runtime  (line 927)
+  M:right_pop → stats_and_log  (line 928)
+  M:left_push → timems_diff  (line 937)
+  M:left_push → self.client:lpush  (line 938)
+  M:left_push → timems_diff  (line 939)
+  M:left_push → latency_timer.insert_runtime  (line 941)
+  M:left_push → stats_and_log  (line 942)
+  M:get_info → self.client:info  (line 957)
+  M:get_info → table.concat  (line 958)
+  M:get_info → self.client:eval  (line 960)
+  M:get_info → type  (line 963)
+  M:get_info → response:gsub  (line 968)
+  M:get_info → row:match  (line 973)
+  M:get_info → section:lower  (line 976)
+  M:get_info → row:match  (line 980)
+  M:get_info → ('([^:]*):([^:]*)'):rep  (line 980)
+  M:get_info → key:match  (line 981)
+  M:get_info → value:gsub  (line 983)
+  M:get_info → row:match  (line 984)
+
+CONTEXT ACCESSES (4):
+  write: ctx(CTX).client in connect  (line 137)
+  write: ctx(CTX).client in connect_glider  (line 152)
+  read: ctx(CTX).client in ref  (line 176)
+  read: ctx(CTX).client in ref  (line 185)
+
+REDIS ACCESSES (6):
+  read: redis.type("<dynamic>") in get_type_in_db  (line 299)
+  read: redis.get("<dynamic>") in get_scalar  (line 316)
+  read: redis.hgetall("<dynamic>") in get_table  (line 320)
+  write: redis.del("<dynamic>") in delete_anything  (line 393)
+  write: redis.set("<dynamic>") in set_scalar  (line 405)
+  write: redis.hset("<dynamic>") in set_table  (line 416)
