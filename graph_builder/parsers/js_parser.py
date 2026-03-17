@@ -369,10 +369,81 @@ def parse_js_file(file_path: str) -> FileAST:
                         if name_node:
                             ast.exports.append(_text(name_node, source))
 
+    # --- IIFE / revealing module pattern exports ---
+    # Detect: return { key: fn, ... } inside function expressions
+    # This catches browser-style modules like: var X = (function(){ ... return { a: a }; })();
+    if not ast.exports:
+        _extract_iife_exports(root, source, ast)
+
+    # --- Global variable assignment exports ---
+    # Detect: window.X = ..., global.X = ...
+    if not ast.exports:
+        _extract_global_exports(root, source, ast)
+
     # --- HTTP call detection (browser → backend) ---
     _extract_js_http_calls(root, source, ast)
 
     return ast
+
+
+def _extract_iife_exports(root, source: bytes, ast: FileAST):
+    """Detect exports from IIFE / revealing module pattern.
+
+    Catches: var X = (function(){ ... return { a: a, b: b }; })();
+    Also: (function(){ ... window.X = { a: a }; })();
+    """
+    for return_stmt in _walk_all(root, "return_statement"):
+        # Only care about returns that are inside a function expression (IIFE body)
+        parent = return_stmt.parent
+        while parent:
+            if parent.type in ("function_expression", "arrow_function"):
+                break
+            if parent.type in ("function_declaration",):
+                # Named function declaration — not an IIFE
+                parent = None
+                break
+            parent = parent.parent
+
+        if not parent:
+            continue
+
+        # Check if the return value is an object literal
+        for child in return_stmt.children:
+            if child.type == "object":
+                for prop in child.named_children:
+                    if prop.type == "shorthand_property_identifier":
+                        name = _text(prop, source)
+                        if name not in ast.exports:
+                            ast.exports.append(name)
+                    elif prop.type == "pair":
+                        key = prop.child_by_field_name("key")
+                        if key:
+                            name = _text(key, source)
+                            if name not in ast.exports:
+                                ast.exports.append(name)
+                    elif prop.type == "method_definition":
+                        name_node = prop.child_by_field_name("name")
+                        if name_node:
+                            name = _text(name_node, source)
+                            if name not in ast.exports:
+                                ast.exports.append(name)
+
+
+def _extract_global_exports(root, source: bytes, ast: FileAST):
+    """Detect exports via global assignment: window.X = ..., global.X = ..."""
+    for assign in _walk_all(root, "assignment_expression"):
+        left = assign.child_by_field_name("left")
+        if not left or left.type != "member_expression":
+            continue
+        obj = left.child_by_field_name("object")
+        prop = left.child_by_field_name("property")
+        if not obj or not prop:
+            continue
+        obj_text = _text(obj, source)
+        if obj_text in ("window", "global", "self", "globalThis"):
+            name = _text(prop, source)
+            if name not in ast.exports:
+                ast.exports.append(name)
 
 
 def _extract_js_http_calls(root, source: bytes, ast: FileAST):

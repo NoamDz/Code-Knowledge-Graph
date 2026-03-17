@@ -243,7 +243,7 @@ def build(ctx):
 def validate(ctx):
     """Run the coverage report against the codebase."""
     config = ctx.obj["config"]
-    report = run_coverage_report(config.repo_root, config.nginx_conf)
+    report = run_coverage_report(config.repo_root, config.nginx_conf, config.nginx_base_path)
     click.echo(report)
 
 

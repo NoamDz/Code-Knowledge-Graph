@@ -254,6 +254,29 @@ def test_python_resolver():
 
 # --- JS export patterns ---
 
+def test_js_iife_exports():
+    """JS parser should detect exports from IIFE / revealing module pattern."""
+    ast = parse_js_file(str(JS_FIXTURES / "iife_module.js"))
+
+    # Should detect exports from return { key: fn, ... }
+    assert len(ast.exports) >= 3, \
+        f"Expected >= 3 IIFE exports, got {len(ast.exports)}: {ast.exports}"
+
+    assert "publicMethod" in ast.exports, f"Missing publicMethod in exports: {ast.exports}"
+    assert "anotherPublic" in ast.exports, f"Missing anotherPublic in exports: {ast.exports}"
+    assert "collect" in ast.exports, f"Missing collect in exports: {ast.exports}"
+
+    # _helperPrivate should NOT be exported (not in the return object)
+    assert "_helperPrivate" not in ast.exports, \
+        f"_helperPrivate should not be exported: {ast.exports}"
+
+    # Should detect HTTP call inside the IIFE
+    assert len(ast.http_calls) >= 1, \
+        f"Expected HTTP calls in IIFE, got {len(ast.http_calls)}"
+
+    print(f"  PASS: JS IIFE exports — {len(ast.exports)} exports: {ast.exports}")
+
+
 def test_js_export_patterns():
     """JS parser should detect exports.foo, module.exports.Foo patterns."""
     ast = parse_js_file(str(JS_FIXTURES / "export_patterns.js"))
@@ -442,6 +465,7 @@ def run_all():
         test_http_calls_python,
         test_context_module,
         test_python_resolver,
+        test_js_iife_exports,
         test_js_export_patterns,
         test_js_erb,
         test_ruby_export_patterns,

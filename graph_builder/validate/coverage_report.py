@@ -27,6 +27,7 @@ from graph_builder.parsers.js_parser import parse_js_file
 from graph_builder.parsers.go_parser import parse_go_file
 from graph_builder.parsers.nginx_parser import parse_nginx_conf, parse_nginx_conf_recursive
 from graph_builder.parsers.base import FileAST, ModulePatternType
+from graph_builder.resolvers.redis_abstraction_resolver import resolve_redis_abstractions
 
 
 PARSERS = {
@@ -93,7 +94,8 @@ def scan_files(repo_root: str) -> dict[str, list[str]]:
     return files
 
 
-def run_coverage_report(repo_root: str, nginx_conf: str | None = None) -> str:
+def run_coverage_report(repo_root: str, nginx_conf: str | None = None,
+                        nginx_base_path: str | None = None) -> str:
     """Run the full coverage report and return formatted output."""
     start = time.time()
     root = Path(repo_root)
@@ -149,6 +151,19 @@ def run_coverage_report(repo_root: str, nginx_conf: str | None = None) -> str:
                 stats.error_files.append(f"{file_path}: {e}")
 
         lang_stats[lang] = stats
+
+    # --- Redis abstraction resolution ---
+    redis_before = sum(s.redis_accesses for s in lang_stats.values())
+    resolve_redis_abstractions(all_asts)
+    # Re-count redis accesses after abstraction resolution
+    for ext, files in file_groups.items():
+        lang = ext.lstrip(".")
+        if lang in lang_stats:
+            lang_stats[lang].redis_accesses = sum(
+                len(all_asts[fp].redis_accesses) for fp in files
+                if fp in all_asts
+            )
+    redis_after = sum(s.redis_accesses for s in lang_stats.values())
 
     # --- Format report ---
 
@@ -244,6 +259,8 @@ def run_coverage_report(repo_root: str, nginx_conf: str | None = None) -> str:
     if total_redis or total_http:
         lines.append(f"\n--- CROSS-SERVICE ---")
         lines.append(f"  Redis key accesses:   {total_redis}")
+        if redis_before < total_redis:
+            lines.append(f"    (direct: {redis_before}, via abstractions: +{total_redis - redis_before})")
         if total_redis:
             redis_by_lang = {lang: s.redis_accesses for lang, s in lang_stats.items() if s.redis_accesses}
             for lang, count in redis_by_lang.items():
@@ -268,7 +285,7 @@ def run_coverage_report(repo_root: str, nginx_conf: str | None = None) -> str:
     # nginx.conf
     if nginx_conf:
         try:
-            config = parse_nginx_conf_recursive(nginx_conf)
+            config = parse_nginx_conf_recursive(nginx_conf, nginx_base_path)
             lines.append(f"\n--- NGINX CONFIG ---")
             lines.append(f"  lua_package_path entries: {len(config.lua_package_path)}")
             lines.append(f"  Shared dicts: {len(config.shared_dicts)}")
