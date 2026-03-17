@@ -1,0 +1,47 @@
+// ERB-templated JavaScript fixture
+// Ruby renders this template to produce browser JS
+
+var API_URL = "<%= @api_url %>";
+var COLLECTOR_ENDPOINT = "<%= Rails.application.config.collector_path %>";
+var DEBUG_MODE = <%= @debug_mode ? 'true' : 'false' %>;
+
+function CollectorClient(options) {
+  this.url = options.url || API_URL;
+  this.batch = [];
+}
+
+CollectorClient.prototype.add = function(event) {
+  this.batch.push(event);
+};
+
+CollectorClient.prototype.flush = function() {
+  if (this.batch.length === 0) return;
+
+  var payload = JSON.stringify(this.batch);
+  this.batch = [];
+
+  // HTTP call to backend - should be detected
+  fetch(COLLECTOR_ENDPOINT, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: payload
+  });
+};
+
+CollectorClient.prototype.sendImmediate = function(event) {
+  // jQuery ajax call - should be detected
+  $.ajax({
+    url: "/api/collect/immediate",
+    method: "POST",
+    data: JSON.stringify(event),
+    contentType: "application/json"
+  });
+};
+
+function initTracker() {
+  var xhr = new XMLHttpRequest();
+  xhr.open("GET", "/api/config/tracker");
+  xhr.send();
+}
+
+module.exports = CollectorClient;

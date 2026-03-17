@@ -24,7 +24,8 @@ from graph_builder.parsers.lua_parser import parse_lua_file
 from graph_builder.parsers.python_parser import parse_python_file
 from graph_builder.parsers.ruby_parser import parse_ruby_file
 from graph_builder.parsers.js_parser import parse_js_file
-from graph_builder.parsers.nginx_parser import parse_nginx_conf
+from graph_builder.parsers.go_parser import parse_go_file
+from graph_builder.parsers.nginx_parser import parse_nginx_conf, parse_nginx_conf_recursive
 from graph_builder.parsers.base import FileAST, ModulePatternType
 
 
@@ -33,6 +34,7 @@ PARSERS = {
     ".py": parse_python_file,
     ".rb": parse_ruby_file,
     ".js": parse_js_file,
+    ".go": parse_go_file,
 }
 
 SKIP_DIRS = {
@@ -79,6 +81,14 @@ def scan_files(repo_root: str) -> dict[str, list[str]]:
             if any(skip in f.parts for skip in SKIP_DIRS):
                 continue
             files[ext].append(str(f))
+
+    # Also scan for .js.erb files (compound extension)
+    for f in root.rglob("*.js.erb"):
+        if any(skip in f.parts for skip in SKIP_DIRS):
+            continue
+        # Parse as JavaScript
+        files.setdefault(".js", [])
+        files[".js"].append(str(f))
 
     return files
 
@@ -258,7 +268,7 @@ def run_coverage_report(repo_root: str, nginx_conf: str | None = None) -> str:
     # nginx.conf
     if nginx_conf:
         try:
-            config = parse_nginx_conf(nginx_conf)
+            config = parse_nginx_conf_recursive(nginx_conf)
             lines.append(f"\n--- NGINX CONFIG ---")
             lines.append(f"  lua_package_path entries: {len(config.lua_package_path)}")
             lines.append(f"  Shared dicts: {len(config.shared_dicts)}")
@@ -266,6 +276,13 @@ def run_coverage_report(repo_root: str, nginx_conf: str | None = None) -> str:
             lines.append(f"  Global Lua phases: {len(config.global_phases)}")
             total_phases = sum(len(loc.phases) for loc in config.locations)
             lines.append(f"  Location Lua phases: {total_phases}")
+            lines.append(f"  Include files: {len(config.include_files)}")
+            lines.append(f"  Upstreams: {len(config.upstreams)}")
+            proxy_count = sum(1 for loc in config.locations if loc.proxy_pass)
+            lines.append(f"  Proxy_pass locations: {proxy_count}")
+            if config.upstreams:
+                for up in config.upstreams:
+                    lines.append(f"    upstream {up.name}: {', '.join(up.servers)}")
         except Exception as e:
             lines.append(f"\n--- NGINX CONFIG ERROR ---")
             lines.append(f"  {e}")

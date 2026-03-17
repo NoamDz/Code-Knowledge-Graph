@@ -209,6 +209,35 @@ class GraphWriter:
             """, func=function, file=file_path,
                  url=url_or_path, method=method, line=line)
 
+    def upsert_proxy_pass(self, location_path: str, target: str,
+                           upstream_name: str | None = None):
+        """Create a PROXIES_TO edge from an Endpoint to a Service."""
+        # Derive service name from upstream name or target URL
+        service_name = upstream_name or target
+        self._run("""
+            MERGE (e:Endpoint {path: $location})
+            MERGE (s:Service {name: $service_name})
+            MERGE (e)-[:PROXIES_TO {upstream_name: $upstream}]->(s)
+            SET s.target = $target
+        """, location=location_path, service_name=service_name,
+             upstream=upstream_name or "", target=target)
+
+    def upsert_upstream(self, name: str, servers: list[str]):
+        """Create or update a Service node from an upstream block."""
+        # Detect unix sockets
+        socket_path = None
+        for srv in servers:
+            if "unix:" in srv:
+                socket_path = srv.split("unix:", 1)[1].split(";")[0].strip()
+                break
+
+        self._run("""
+            MERGE (s:Service {name: $name})
+            SET s.servers = $servers,
+                s.socket_path = $socket_path,
+                s.type = "upstream"
+        """, name=name, servers=servers, socket_path=socket_path)
+
     # --- Bulk operations ---
 
     def ingest_file_ast(self, ast: FileAST, resolved_imports: dict[str, str | None] | None = None):

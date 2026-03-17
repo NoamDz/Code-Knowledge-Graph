@@ -209,10 +209,91 @@ def parse_ruby_file(file_path: str) -> FileAST:
             line=call_node.start_point[0] + 1,
         ))
 
-    # --- Exports (public methods) ---
+    # --- Module definitions ---
+    for mod_node in _walk_all(root, "module"):
+        name_node = mod_node.child_by_field_name("name")
+        if not name_node:
+            continue
+        module_name = _text(name_node, source)
+        # Export module name
+        ast.exports.append(module_name)
+
+        # Extract module-level methods (methods inside module but not inside a class)
+        body = mod_node.child_by_field_name("body")
+        if body:
+            for child in body.children:
+                # Singleton methods: def self.method_name
+                if child.type == "singleton_method":
+                    mn = child.child_by_field_name("name")
+                    if mn:
+                        mname = _text(mn, source)
+                        full_name = f"{module_name}.{mname}"
+                        params = _extract_ruby_params(child, source)
+                        ast.functions.append(FunctionDef(
+                            name=full_name,
+                            line=child.start_point[0] + 1,
+                            line_end=child.end_point[0] + 1,
+                            visibility="public",
+                            params=params,
+                            is_method=True,
+                        ))
+                        ast.exports.append(full_name)
+
+                # Regular methods inside module (not class) are module functions
+                if child.type == "method":
+                    mn = child.child_by_field_name("name")
+                    if mn:
+                        mname = _text(mn, source)
+                        # Only add if not already captured inside a class
+                        if not any(f.name == mname and f.is_method for f in ast.functions):
+                            params = _extract_ruby_params(child, source)
+                            ast.functions.append(FunctionDef(
+                                name=mname,
+                                line=child.start_point[0] + 1,
+                                line_end=child.end_point[0] + 1,
+                                visibility="public",
+                                params=params,
+                                is_method=True,
+                            ))
+
+    # --- Singleton methods on classes (def self.method_name) ---
+    for class_node in _walk_all(root, "class"):
+        name_node = class_node.child_by_field_name("name")
+        if not name_node:
+            continue
+        class_name = _text(name_node, source)
+        body = class_node.child_by_field_name("body")
+        if body:
+            for child in body.children:
+                if child.type == "singleton_method":
+                    mn = child.child_by_field_name("name")
+                    if mn:
+                        mname = _text(mn, source)
+                        full_name = f"{class_name}.{mname}"
+                        params = _extract_ruby_params(child, source)
+                        ast.functions.append(FunctionDef(
+                            name=full_name,
+                            line=child.start_point[0] + 1,
+                            line_end=child.end_point[0] + 1,
+                            visibility="public",
+                            params=params,
+                            is_method=True,
+                        ))
+                        ast.exports.append(full_name)
+                        # Also add to the class methods list
+                        for cls in ast.classes:
+                            if cls.name == class_name:
+                                cls.methods.append(f"self.{mname}")
+
+    # --- Exports ---
+    # Export: public methods
     for func in ast.functions:
-        if func.visibility == "public":
+        if func.visibility == "public" and func.name not in ast.exports:
             ast.exports.append(func.name)
+    # Export: class names
+    for cls in ast.classes:
+        if cls.name not in ast.exports:
+            ast.exports.append(cls.name)
 
     return ast
 

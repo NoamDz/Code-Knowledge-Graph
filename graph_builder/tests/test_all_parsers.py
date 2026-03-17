@@ -12,6 +12,7 @@ from graph_builder.parsers.lua_parser import parse_lua_file
 from graph_builder.parsers.python_parser import parse_python_file
 from graph_builder.parsers.ruby_parser import parse_ruby_file
 from graph_builder.parsers.js_parser import parse_js_file
+from graph_builder.parsers.go_parser import parse_go_file
 from graph_builder.parsers.nginx_parser import parse_nginx_conf
 from graph_builder.parsers.base import ModulePatternType
 from graph_builder.validate.spot_check import spot_check
@@ -156,6 +157,35 @@ def test_js():
           "js: _bindRoutes should be private")
 
 
+def test_go():
+    ast = parse_go_file(str(FIXTURES / "go" / "http_handler.go"))
+    check(ast.module_name == "main", f"go: package should be main, got {ast.module_name}")
+    check(len(ast.imports) >= 5, f"go: expected >= 5 imports, got {len(ast.imports)}")
+    # Struct definitions
+    struct_names = {c.name for c in ast.classes}
+    check("Config" in struct_names, f"go: missing Config struct in {struct_names}")
+    check("Server" in struct_names, f"go: missing Server struct in {struct_names}")
+    # Functions
+    func_names = {f.name for f in ast.functions}
+    check("NewServer" in func_names, f"go: missing NewServer in {func_names}")
+    check("main" in func_names, f"go: missing main in {func_names}")
+    check("handleMetrics" in func_names, f"go: missing handleMetrics in {func_names}")
+    # Methods with receivers
+    check("Server.registerRoutes" in func_names or any("registerRoutes" in n for n in func_names),
+          f"go: missing Server.registerRoutes in {func_names}")
+    # Exports (uppercase)
+    check("NewServer" in ast.exports, f"go: NewServer should be exported: {ast.exports}")
+    check("Config" in ast.exports, f"go: Config should be exported: {ast.exports}")
+    # HTTP handlers
+    check(len(ast.http_calls) >= 1, f"go: expected HTTP handlers, got {len(ast.http_calls)}")
+    handler_paths = {h.url_or_path for h in ast.http_calls}
+    check("/api/health" in handler_paths or "/metrics" in handler_paths,
+          f"go: missing handler paths in {handler_paths}")
+    # Unix socket detection
+    check(any("unix_socket:" in w for w in ast.warnings),
+          f"go: should detect unix socket listener: {ast.warnings}")
+
+
 def test_nginx():
     config = parse_nginx_conf(str(FIXTURES / "nginx.conf"))
     check(len(config.lua_package_path) == 2, f"nginx: expected 2 package paths, got {len(config.lua_package_path)}")
@@ -201,6 +231,7 @@ def main():
         ("Python parser", test_python),
         ("Ruby parser", test_ruby),
         ("JavaScript parser", test_js),
+        ("Go parser", test_go),
         ("nginx.conf parser", test_nginx),
         ("Spot-check tool", test_spot_check_tool),
         ("Coverage report tool", test_coverage_report_tool),

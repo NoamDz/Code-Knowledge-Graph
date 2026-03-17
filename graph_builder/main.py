@@ -23,10 +23,12 @@ from .parsers.lua_parser import parse_lua_file
 from .parsers.python_parser import parse_python_file
 from .parsers.ruby_parser import parse_ruby_file
 from .parsers.js_parser import parse_js_file
+from .parsers.go_parser import parse_go_file
 from .parsers.nginx_parser import parse_nginx_conf, parse_nginx_conf_recursive
 from .parsers.base import FileAST
 from .resolvers.lua_resolver import LuaResolver
 from .resolvers.call_resolver import CallResolver
+from .resolvers.redis_abstraction_resolver import resolve_redis_abstractions
 from .validate.spot_check import spot_check
 from .validate.coverage_report import run_coverage_report
 
@@ -36,6 +38,7 @@ PARSERS = {
     "python": parse_python_file,
     "ruby": parse_ruby_file,
     "javascript": parse_js_file,
+    "go": parse_go_file,
 }
 
 
@@ -163,6 +166,15 @@ def build(ctx):
                f"{call_stats['already_resolved'] + call_stats['newly_resolved']} resolved "
                f"({call_stats['resolution_rate']:.1f}%)")
 
+    # Step 4b: Resolve Redis abstractions
+    click.echo("Resolving Redis abstraction layers...")
+    redis_before = sum(len(ast.redis_accesses) for ast in all_asts.values())
+    resolve_redis_abstractions(all_asts)
+    redis_after = sum(len(ast.redis_accesses) for ast in all_asts.values())
+    redis_added = redis_after - redis_before
+    if redis_added > 0:
+        click.echo(f"  Redis accesses via abstractions: +{redis_added} (total: {redis_after})")
+
     # Step 5: Ingest into Memgraph
     click.echo("Ingesting into Memgraph...")
     try:
@@ -190,7 +202,24 @@ def build(ctx):
                         loc.path, phase.phase,
                         phase.lua_file, phase.is_inline,
                     )
-            click.echo(f"  Ingested {len(nginx_config.locations)} nginx locations")
+                # Ingest proxy_pass → Service edges
+                if loc.proxy_pass:
+                    # Try to find upstream name from target
+                    upstream_name = None
+                    target = loc.proxy_pass.target
+                    for upstream in nginx_config.upstreams:
+                        if upstream.name in target:
+                            upstream_name = upstream.name
+                            break
+                    writer.upsert_proxy_pass(loc.path, target, upstream_name)
+
+            # Ingest upstream definitions
+            for upstream in nginx_config.upstreams:
+                writer.upsert_upstream(upstream.name, upstream.servers)
+
+            proxy_count = sum(1 for loc in nginx_config.locations if loc.proxy_pass)
+            click.echo(f"  Ingested {len(nginx_config.locations)} nginx locations, "
+                       f"{proxy_count} proxy_pass, {len(nginx_config.upstreams)} upstreams")
 
         # Ingest all files
         for file_path, ast in all_asts.items():

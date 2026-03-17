@@ -16,13 +16,20 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from graph_builder.parsers.lua_parser import parse_lua_file
 from graph_builder.parsers.python_parser import parse_python_file
+from graph_builder.parsers.ruby_parser import parse_ruby_file
+from graph_builder.parsers.js_parser import parse_js_file
+from graph_builder.parsers.go_parser import parse_go_file
 from graph_builder.parsers.nginx_parser import parse_nginx_conf, parse_nginx_conf_recursive
 from graph_builder.config import Config
 from graph_builder.resolvers.python_resolver import PythonResolver
+from graph_builder.resolvers.redis_abstraction_resolver import resolve_redis_abstractions
 
 FIXTURES = Path(__file__).parent / "fixtures"
 LUA_FIXTURES = FIXTURES / "lua"
 PY_FIXTURES = FIXTURES / "python"
+JS_FIXTURES = FIXTURES / "js"
+RB_FIXTURES = FIXTURES / "ruby"
+GO_FIXTURES = FIXTURES / "go"
 NGINX_FIXTURES = FIXTURES / "nginx_includes"
 
 
@@ -245,6 +252,181 @@ def test_python_resolver():
         print("  SKIP: Python resolver — could not resolve in this directory structure")
 
 
+# --- JS export patterns ---
+
+def test_js_export_patterns():
+    """JS parser should detect exports.foo, module.exports.Foo patterns."""
+    ast = parse_js_file(str(JS_FIXTURES / "export_patterns.js"))
+
+    assert "processData" in ast.exports, f"Missing processData in exports: {ast.exports}"
+    assert "formatOutput" in ast.exports, f"Missing formatOutput in exports: {ast.exports}"
+    assert "DataCollector" in ast.exports, f"Missing DataCollector in exports: {ast.exports}"
+
+    print(f"  PASS: JS export patterns — {len(ast.exports)} exports: {ast.exports}")
+
+
+def test_js_erb():
+    """JS parser should handle .js.erb files with ERB tags stripped."""
+    ast = parse_js_file(str(JS_FIXTURES / "erb_template.js.erb"))
+
+    # Should parse successfully despite ERB tags
+    assert len(ast.functions) >= 1, \
+        f"Expected >= 1 function, got {len(ast.functions)}: {[f.name for f in ast.functions]}"
+
+    # Should detect module.exports = ClassName
+    assert len(ast.exports) >= 1, f"Expected exports, got {ast.exports}"
+
+    # Should detect HTTP calls (fetch, $.ajax, XMLHttpRequest.open)
+    assert len(ast.http_calls) >= 1, \
+        f"Expected >= 1 HTTP call, got {len(ast.http_calls)}: " \
+        f"{[(h.url_or_path, h.method) for h in ast.http_calls]}"
+
+    http_urls = {h.url_or_path for h in ast.http_calls}
+    assert any("/api/" in u for u in http_urls), \
+        f"Missing /api/ in HTTP call URLs: {http_urls}"
+
+    print(f"  PASS: JS ERB — {len(ast.functions)} functions, {len(ast.exports)} exports, "
+          f"{len(ast.http_calls)} HTTP calls")
+
+
+# --- Ruby export patterns ---
+
+def test_ruby_export_patterns():
+    """Ruby parser should export class names, module names, and singleton methods."""
+    ast = parse_ruby_file(str(RB_FIXTURES / "export_patterns.rb"))
+
+    # Module name should be exported
+    assert "Exportable" in ast.exports, f"Missing Exportable in exports: {ast.exports}"
+
+    # Class names should be exported
+    assert "BaseProcessor" in ast.exports, f"Missing BaseProcessor in exports: {ast.exports}"
+    assert "SpecialProcessor" in ast.exports, f"Missing SpecialProcessor in exports: {ast.exports}"
+
+    # Singleton methods (def self.method) should be exported
+    singleton_exports = [e for e in ast.exports if "." in e]
+    assert any("create" in e for e in singleton_exports), \
+        f"Missing self.create in exports: {ast.exports}"
+
+    # Private methods should NOT be exported
+    assert "validate" not in ast.exports, f"validate should not be exported: {ast.exports}"
+    assert "transform" not in ast.exports, f"transform should not be exported: {ast.exports}"
+
+    print(f"  PASS: Ruby export patterns — {len(ast.exports)} exports: {ast.exports}")
+
+
+# --- nginx proxy_pass ---
+
+def test_nginx_proxy_pass():
+    """nginx parser should detect proxy_pass and upstream blocks."""
+    main_conf = NGINX_FIXTURES / "main.conf"
+    if not main_conf.exists():
+        print("  SKIP: nginx include fixture not found")
+        return
+
+    config = parse_nginx_conf_recursive(str(main_conf))
+
+    # Should detect upstreams
+    upstream_names = {u.name for u in config.upstreams}
+    assert "go_backend" in upstream_names, f"Missing go_backend in upstreams: {upstream_names}"
+    assert "python_backend" in upstream_names, f"Missing python_backend in upstreams: {upstream_names}"
+
+    # go_backend should have unix socket server
+    go_up = [u for u in config.upstreams if u.name == "go_backend"][0]
+    assert any("unix:" in s for s in go_up.servers), \
+        f"Expected unix socket in go_backend servers: {go_up.servers}"
+
+    # Should detect proxy_pass in locations
+    proxy_locs = [loc for loc in config.locations if loc.proxy_pass]
+    assert len(proxy_locs) >= 2, \
+        f"Expected >= 2 proxy_pass locations, got {len(proxy_locs)}"
+
+    proxy_targets = {loc.proxy_pass.target for loc in proxy_locs}
+    assert any("go_backend" in t for t in proxy_targets), \
+        f"Missing go_backend proxy_pass: {proxy_targets}"
+
+    print(f"  PASS: nginx proxy_pass — {len(config.upstreams)} upstreams, "
+          f"{len(proxy_locs)} proxy_pass locations")
+
+
+# --- Redis abstraction ---
+
+def test_redis_abstraction():
+    """Redis abstraction resolver should create RedisKeyAccess from redis_helper calls."""
+    # Parse the fixture
+    ast = parse_lua_file(str(LUA_FIXTURES / "redis_helper_caller.lua"))
+
+    # Before resolution, this file has no direct redis accesses
+    assert len(ast.redis_accesses) == 0, \
+        f"Expected 0 direct redis accesses, got {len(ast.redis_accesses)}"
+
+    # Run the abstraction resolver
+    all_asts = {ast.file_path: ast}
+    resolve_redis_abstractions(all_asts)
+
+    # After resolution, should have redis accesses via abstraction
+    assert len(ast.redis_accesses) >= 5, \
+        f"Expected >= 5 redis accesses via abstraction, got {len(ast.redis_accesses)}: " \
+        f"{[(r.operation, r.access_type) for r in ast.redis_accesses]}"
+
+    # Check read/write classification
+    reads = [r for r in ast.redis_accesses if r.access_type == "read"]
+    writes = [r for r in ast.redis_accesses if r.access_type == "write"]
+    assert len(reads) >= 2, f"Expected >= 2 reads, got {len(reads)}"
+    assert len(writes) >= 2, f"Expected >= 2 writes, got {len(writes)}"
+
+    # Keys should indicate abstraction
+    assert all("<via " in r.key_name for r in ast.redis_accesses), \
+        f"Expected <via ...> in key names"
+
+    print(f"  PASS: Redis abstraction — {len(ast.redis_accesses)} accesses "
+          f"({len(reads)} reads, {len(writes)} writes)")
+
+
+# --- Go parser ---
+
+def test_go_parser():
+    """Go parser should extract functions, structs, HTTP handlers, and unix sockets."""
+    ast = parse_go_file(str(GO_FIXTURES / "http_handler.go"))
+
+    # Package
+    assert ast.module_name == "main", f"Expected package main, got {ast.module_name}"
+
+    # Imports
+    assert len(ast.imports) >= 5, f"Expected >= 5 imports, got {len(ast.imports)}"
+    import_mods = {imp.module_string for imp in ast.imports}
+    assert "net/http" in import_mods, f"Missing net/http in imports"
+    assert "encoding/json" in import_mods, f"Missing encoding/json in imports"
+
+    # Functions
+    func_names = {f.name for f in ast.functions}
+    assert "NewServer" in func_names, f"Missing NewServer: {func_names}"
+    assert "main" in func_names, f"Missing main: {func_names}"
+
+    # Methods with receiver types
+    assert any("Server." in f.name for f in ast.functions), \
+        f"Missing Server methods: {func_names}"
+
+    # Structs
+    class_names = {c.name for c in ast.classes}
+    assert "Config" in class_names, f"Missing Config struct: {class_names}"
+    assert "Server" in class_names, f"Missing Server struct: {class_names}"
+
+    # Exports (uppercase)
+    assert "NewServer" in ast.exports, f"NewServer should be exported"
+    assert "Config" in ast.exports, f"Config should be exported"
+    assert "main" not in ast.exports, f"main should not be exported"
+
+    # HTTP handlers
+    assert len(ast.http_calls) >= 1, f"Expected HTTP handlers: {ast.http_calls}"
+
+    # Unix socket
+    assert any("unix_socket:" in w for w in ast.warnings), \
+        f"Expected unix socket warning: {ast.warnings}"
+
+    print(f"  PASS: Go parser — {len(ast.functions)} functions, {len(ast.classes)} structs, "
+          f"{len(ast.imports)} imports, {len(ast.http_calls)} HTTP handlers")
+
+
 # --- Runner ---
 
 def run_all():
@@ -260,6 +442,12 @@ def run_all():
         test_http_calls_python,
         test_context_module,
         test_python_resolver,
+        test_js_export_patterns,
+        test_js_erb,
+        test_ruby_export_patterns,
+        test_nginx_proxy_pass,
+        test_redis_abstraction,
+        test_go_parser,
     ]
 
     passed = 0

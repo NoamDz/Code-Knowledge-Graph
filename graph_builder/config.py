@@ -31,6 +31,8 @@ class Config:
         ".py": "python",
         ".rb": "ruby",
         ".js": "javascript",
+        ".js.erb": "javascript",
+        ".go": "go",
     })
 
     # Directories to skip during scanning

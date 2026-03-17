@@ -19,6 +19,7 @@ INDEX_STATEMENTS = [
     "CREATE INDEX ON :SharedDict(name);",
     "CREATE INDEX ON :RedisKey(name);",
     "CREATE INDEX ON :SharedFile(path);",
+    "CREATE INDEX ON :Service(name);",
 ]
 
 # Node labels and their key properties
@@ -33,6 +34,7 @@ NODE_TYPES = {
     "SharedDict": ["name"],
     "RedisKey": ["name"],
     "SharedFile": ["path"],
+    "Service": ["name", "type", "socket_path"],
 }
 
 # Edge types and their properties
@@ -53,6 +55,7 @@ EDGE_TYPES = {
     "REDIS_READS": ["operation", "line"],
     "REDIS_WRITES": ["operation", "line"],
     "HTTP_CALLS": ["method", "line"],
+    "PROXIES_TO": ["upstream_name"],
 }
 
 

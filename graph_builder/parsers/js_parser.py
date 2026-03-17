@@ -11,14 +11,23 @@ Extracts:
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from tree_sitter import Language, Parser
 import tree_sitter_javascript as tsjs
 
-from .base import FileAST, FunctionDef, ImportRef, CallRef, ClassDef
+from .base import FileAST, FunctionDef, ImportRef, CallRef, ClassDef, HttpCallRef
 
 JS = Language(tsjs.language())
+
+# ERB tag pattern: replaces <%= ... %>, <% ... %>, <%- ... %>, <%# ... %>
+RE_ERB_TAG = re.compile(rb'<%[=\-#]?.*?%>', re.DOTALL)
+
+
+def _strip_erb(source: bytes) -> bytes:
+    """Strip ERB tags from source, replacing with empty string literals."""
+    return RE_ERB_TAG.sub(b'""', source)
 
 
 def _text(node, source: bytes) -> str:
@@ -97,9 +106,17 @@ def _extract_params(node, source: bytes) -> list[str]:
 
 
 def parse_js_file(file_path: str) -> FileAST:
-    """Parse a JavaScript file and extract all code entities."""
+    """Parse a JavaScript file and extract all code entities.
+
+    Supports .js.erb files by stripping ERB tags before parsing.
+    """
     parser = Parser(JS)
     source = Path(file_path).read_bytes()
+
+    # Strip ERB tags for .js.erb files (or any file containing ERB)
+    if file_path.endswith(".erb"):
+        source = _strip_erb(source)
+
     tree = parser.parse(source)
     root = tree.root_node
 
@@ -287,12 +304,19 @@ def parse_js_file(file_path: str) -> FileAST:
         ))
 
     # --- Exports ---
-    # module.exports = { ... }
     for assign in _walk_all(root, "assignment_expression"):
         left = assign.child_by_field_name("left")
-        if left and _text(left, source) == "module.exports":
+        if not left:
+            continue
+        left_text = _text(left, source)
+
+        # module.exports = ...
+        if left_text == "module.exports":
             right = assign.child_by_field_name("right")
-            if right and right.type == "object":
+            if not right:
+                continue
+            if right.type == "object":
+                # module.exports = { key: val, shorthand }
                 for child in right.named_children:
                     if child.type == "shorthand_property_identifier":
                         ast.exports.append(_text(child, source))
@@ -300,6 +324,35 @@ def parse_js_file(file_path: str) -> FileAST:
                         key = child.child_by_field_name("key")
                         if key:
                             ast.exports.append(_text(key, source))
+            elif right.type == "identifier":
+                # module.exports = ClassName
+                ast.exports.append(_text(right, source))
+            elif right.type in ("function_expression", "arrow_function", "class"):
+                # module.exports = function(){} or class
+                name = right.child_by_field_name("name")
+                if name:
+                    ast.exports.append(_text(name, source))
+                else:
+                    ast.exports.append("<default>")
+            elif right.type == "call_expression":
+                # module.exports = require("./x") — re-export
+                func = right.child_by_field_name("function")
+                if func and _text(func, source) == "require":
+                    ast.exports.append("<reexport>")
+
+        # module.exports.Foo = value
+        elif left_text.startswith("module.exports."):
+            prop_name = left_text.split("module.exports.", 1)[1]
+            if prop_name:
+                ast.exports.append(prop_name)
+
+        # exports.foo = value
+        elif left.type == "member_expression":
+            obj = left.child_by_field_name("object")
+            prop = left.child_by_field_name("property")
+            if obj and prop and _text(obj, source) == "exports":
+                ast.exports.append(_text(prop, source))
+
     # export default / export { ... }
     for exp in _walk_all(root, "export_statement"):
         decl = exp.child_by_field_name("declaration")
@@ -307,5 +360,121 @@ def parse_js_file(file_path: str) -> FileAST:
             name = decl.child_by_field_name("name")
             if name:
                 ast.exports.append(_text(name, source))
+        # export { a, b }
+        for child in exp.children:
+            if child.type == "export_clause":
+                for spec in child.named_children:
+                    if spec.type == "export_specifier":
+                        name_node = spec.child_by_field_name("name")
+                        if name_node:
+                            ast.exports.append(_text(name_node, source))
+
+    # --- HTTP call detection (browser → backend) ---
+    _extract_js_http_calls(root, source, ast)
 
     return ast
+
+
+def _extract_js_http_calls(root, source: bytes, ast: FileAST):
+    """Detect HTTP calls in JS: fetch(), $.ajax(), XMLHttpRequest."""
+    for call_node in _walk_all(root, "call_expression"):
+        func = call_node.child_by_field_name("function")
+        if not func:
+            continue
+        callee = _text(func, source)
+        enclosing = _find_enclosing(call_node, source)
+        args = call_node.child_by_field_name("arguments")
+
+        # fetch("/api/endpoint", { method: "POST" })
+        if callee == "fetch" and args and args.named_child_count >= 1:
+            first_arg = args.named_children[0]
+            url = _try_get_string(first_arg, source)
+            if url:
+                method = "GET"
+                # Check for method in options object
+                if args.named_child_count >= 2:
+                    opts = args.named_children[1]
+                    method = _extract_method_from_object(opts, source) or "GET"
+                ast.http_calls.append(HttpCallRef(
+                    url_or_path=url, method=method,
+                    function=enclosing, line=call_node.start_point[0] + 1,
+                ))
+
+        # $.ajax({ url: "/api", method: "POST" })
+        elif callee in ("$.ajax", "jQuery.ajax") and args and args.named_child_count >= 1:
+            opts = args.named_children[0]
+            if opts.type == "object":
+                url = _extract_prop_string(opts, source, "url")
+                if url:
+                    method = _extract_method_from_object(opts, source) or "GET"
+                    ast.http_calls.append(HttpCallRef(
+                        url_or_path=url, method=method,
+                        function=enclosing, line=call_node.start_point[0] + 1,
+                    ))
+
+    # XMLHttpRequest.open("METHOD", "/url")
+    for call_node in _walk_all(root, "call_expression"):
+        func = call_node.child_by_field_name("function")
+        if not func:
+            continue
+        callee = _text(func, source)
+        if callee.endswith(".open"):
+            args = call_node.child_by_field_name("arguments")
+            if args and args.named_child_count >= 2:
+                method_arg = args.named_children[0]
+                url_arg = args.named_children[1]
+                method = _try_get_string(method_arg, source)
+                url = _try_get_string(url_arg, source)
+                if method and url and method.upper() in ("GET", "POST", "PUT", "DELETE", "PATCH"):
+                    enclosing = _find_enclosing(call_node, source)
+                    ast.http_calls.append(HttpCallRef(
+                        url_or_path=url, method=method.upper(),
+                        function=enclosing, line=call_node.start_point[0] + 1,
+                    ))
+
+
+def _try_get_string(node, source: bytes) -> str | None:
+    """Try to extract a string value from a node."""
+    if not node:
+        return None
+    if node.type == "string":
+        return _get_string_value(node, source)
+    if node.type == "identifier":
+        # Can't resolve variable values at parse time
+        return None
+    if node.type == "template_string":
+        # Template literals — extract the static part
+        frags = []
+        for child in node.children:
+            if child.type == "string_fragment" or child.type == "template_fragment":
+                frags.append(_text(child, source))
+        return "".join(frags) if frags else None
+    return None
+
+
+def _extract_method_from_object(node, source: bytes) -> str | None:
+    """Extract method property from an object literal like { method: "POST" }."""
+    if node.type != "object":
+        return None
+    for child in node.named_children:
+        if child.type == "pair":
+            key = child.child_by_field_name("key")
+            val = child.child_by_field_name("value")
+            if key and val:
+                key_text = _text(key, source)
+                if key_text in ("method", "type"):
+                    return _try_get_string(val, source)
+    return None
+
+
+def _extract_prop_string(node, source: bytes, prop_name: str) -> str | None:
+    """Extract a string property value from an object literal."""
+    if node.type != "object":
+        return None
+    for child in node.named_children:
+        if child.type == "pair":
+            key = child.child_by_field_name("key")
+            val = child.child_by_field_name("value")
+            if key and val and _text(key, source) == prop_name:
+                return _try_get_string(val, source)
+    return None

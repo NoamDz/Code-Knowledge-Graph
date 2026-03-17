@@ -31,12 +31,20 @@ class NginxLuaPhase:
 
 
 @dataclass
+class NginxProxyPass:
+    """A proxy_pass directive in a location block."""
+    target: str             # e.g., "http://go_backend" or "http://unix:/tmp/svc.sock:/path"
+    line: int
+
+
+@dataclass
 class NginxLocation:
     """A location block with its Lua phases."""
     path: str               # e.g., "/api/auth/login"
     modifier: str | None    # e.g., "~", "=", "~*"
     line: int
     phases: list[NginxLuaPhase] = field(default_factory=list)
+    proxy_pass: NginxProxyPass | None = None
 
 
 @dataclass
@@ -48,6 +56,14 @@ class NginxSharedDict:
 
 
 @dataclass
+class NginxUpstream:
+    """An upstream block definition."""
+    name: str               # e.g., "go_backend"
+    servers: list[str] = field(default_factory=list)  # e.g., ["127.0.0.1:8081", "unix:/tmp/svc.sock"]
+    line: int = 0
+
+
+@dataclass
 class NginxConfig:
     """Complete parsed nginx config."""
     lua_package_path: list[str] = field(default_factory=list)
@@ -56,6 +72,7 @@ class NginxConfig:
     locations: list[NginxLocation] = field(default_factory=list)
     global_phases: list[NginxLuaPhase] = field(default_factory=list)
     include_files: list[str] = field(default_factory=list)
+    upstreams: list[NginxUpstream] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
 
 
@@ -90,6 +107,9 @@ RE_LOCATION = re.compile(r'location\s+(=|~\*?|~)?\s*(\S+)\s*\{')
 RE_LUA_FILE = re.compile(r'(\w+_by_lua_file)\s+(\S+)\s*;')
 RE_LUA_BLOCK_START = re.compile(r'(\w+_by_lua_block)\s*\{')
 RE_INCLUDE = re.compile(r'include\s+(\S+)\s*;')
+RE_UPSTREAM = re.compile(r'upstream\s+(\w+)\s*\{')
+RE_PROXY_PASS = re.compile(r'proxy_pass\s+(\S+?)\s*;')
+RE_UPSTREAM_SERVER = re.compile(r'server\s+(\S+)')
 
 
 def _extract_block(content: str, start_pos: int) -> tuple[str, int]:
@@ -152,6 +172,20 @@ def _parse_single_file(content: str, config: NginxConfig):
     # include directives
     for m in RE_INCLUDE.finditer(content):
         config.include_files.append(m.group(1))
+
+    # upstream blocks
+    for m in RE_UPSTREAM.finditer(content):
+        upstream_name = m.group(1)
+        block_content, _ = _extract_block(content, m.start() + len(m.group(0)) - 1)
+        servers = []
+        for srv_match in RE_UPSTREAM_SERVER.finditer(block_content):
+            server_addr = srv_match.group(1).rstrip(";")
+            servers.append(server_addr)
+        config.upstreams.append(NginxUpstream(
+            name=upstream_name,
+            servers=servers,
+            line=_line_number(content, m.start()),
+        ))
 
     # Process location blocks and their Lua directives
     _parse_locations_and_phases(content, config)
@@ -276,6 +310,14 @@ def _parse_locations_and_phases(content: str, config: NginxConfig):
 
             # Find Lua directives within this location block
             _extract_phases_from_block(block_content, loc.phases, line, config)
+
+            # Extract proxy_pass within this location block
+            pp_match = RE_PROXY_PASS.search(block_content)
+            if pp_match:
+                loc.proxy_pass = NginxProxyPass(
+                    target=pp_match.group(1),
+                    line=line + block_content[:pp_match.start()].count('\n'),
+                )
 
             config.locations.append(loc)
             pos = end_pos

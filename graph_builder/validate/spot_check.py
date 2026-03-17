@@ -19,6 +19,7 @@ from graph_builder.parsers.lua_parser import parse_lua_file
 from graph_builder.parsers.python_parser import parse_python_file
 from graph_builder.parsers.ruby_parser import parse_ruby_file
 from graph_builder.parsers.js_parser import parse_js_file
+from graph_builder.parsers.go_parser import parse_go_file
 
 
 PARSERS = {
@@ -26,6 +27,7 @@ PARSERS = {
     ".py": parse_python_file,
     ".rb": parse_ruby_file,
     ".js": parse_js_file,
+    ".go": parse_go_file,
 }
 
 
@@ -35,7 +37,10 @@ def spot_check(file_path: str) -> str:
     if not path.exists():
         return f"ERROR: File not found: {file_path}"
 
+    # Handle compound extensions like .js.erb
     ext = path.suffix
+    if ext == ".erb" and path.stem.endswith(".js"):
+        ext = ".js"
     if ext not in PARSERS:
         return f"ERROR: Unsupported file type: {ext} (supported: {list(PARSERS.keys())})"
 
