@@ -71,6 +71,21 @@ def _find_enclosing(node, source: bytes) -> str:
     return method_name or "<module>"
 
 
+def _find_enclosing_module_or_class(node, source: bytes) -> str | None:
+    """Walk up the tree to find enclosing module/class name chain."""
+    names = []
+    current = node.parent
+    while current:
+        if current.type in ("class", "module"):
+            n = current.child_by_field_name("name")
+            if n:
+                names.append(_text(n, source))
+        current = current.parent
+    if names:
+        return "::".join(reversed(names))
+    return None
+
+
 def parse_ruby_file(file_path: str) -> FileAST:
     """Parse a Ruby file and extract all code entities."""
     parser = Parser(RB)
@@ -134,6 +149,9 @@ def parse_ruby_file(file_path: str) -> FileAST:
                         mname = _text(mn, source)
                         methods.append(mname)
                         params = _extract_ruby_params(child, source)
+                        # Build qualified name: Module::Class#method
+                        enclosing = _find_enclosing_module_or_class(child, source)
+                        method_qn = f"{enclosing}#{mname}" if enclosing else None
                         ast.functions.append(FunctionDef(
                             name=mname,
                             line=child.start_point[0] + 1,
@@ -141,6 +159,7 @@ def parse_ruby_file(file_path: str) -> FileAST:
                             visibility=visibility,
                             params=params,
                             is_method=True,
+                            qualified_name=method_qn,
                         ))
 
                 # include/extend calls
@@ -163,13 +182,24 @@ def parse_ruby_file(file_path: str) -> FileAST:
                                     if arg.type == "simple_symbol":
                                         sym = _text(arg, source).lstrip(":")
                                         methods.append(sym)
+                                        attr_enclosing = _find_enclosing_module_or_class(child, source)
+                                        attr_qn = f"{attr_enclosing}#{sym}" if attr_enclosing else None
                                         ast.functions.append(FunctionDef(
                                             name=sym,
                                             line=child.start_point[0] + 1,
                                             line_end=child.start_point[0] + 1,
                                             visibility="public",
                                             is_method=True,
+                                            qualified_name=attr_qn,
                                         ))
+
+        # Build qualified name for class including enclosing module
+        cls_enclosing = _find_enclosing_module_or_class(class_node, source)
+        if cls_enclosing:
+            # cls_enclosing already includes this class, use it directly
+            cls_qn = cls_enclosing
+        else:
+            cls_qn = class_name
 
         ast.classes.append(ClassDef(
             name=class_name,
@@ -178,6 +208,7 @@ def parse_ruby_file(file_path: str) -> FileAST:
             parent_class=parent_class,
             mixins=mixins,
             methods=methods,
+            qualified_name=cls_qn,
         ))
 
     # --- Calls ---
@@ -229,6 +260,7 @@ def parse_ruby_file(file_path: str) -> FileAST:
                         mname = _text(mn, source)
                         full_name = f"{module_name}.{mname}"
                         params = _extract_ruby_params(child, source)
+                        singleton_qn = f"{module_name}.{mname}"
                         ast.functions.append(FunctionDef(
                             name=full_name,
                             line=child.start_point[0] + 1,
@@ -236,6 +268,7 @@ def parse_ruby_file(file_path: str) -> FileAST:
                             visibility="public",
                             params=params,
                             is_method=True,
+                            qualified_name=singleton_qn,
                         ))
                         ast.exports.append(full_name)
 
@@ -247,6 +280,7 @@ def parse_ruby_file(file_path: str) -> FileAST:
                         # Only add if not already captured inside a class
                         if not any(f.name == mname and f.is_method for f in ast.functions):
                             params = _extract_ruby_params(child, source)
+                            mod_method_qn = f"{module_name}#{mname}"
                             ast.functions.append(FunctionDef(
                                 name=mname,
                                 line=child.start_point[0] + 1,
@@ -254,6 +288,7 @@ def parse_ruby_file(file_path: str) -> FileAST:
                                 visibility="public",
                                 params=params,
                                 is_method=True,
+                                qualified_name=mod_method_qn,
                             ))
 
     # --- Singleton methods on classes (def self.method_name) ---
@@ -271,6 +306,7 @@ def parse_ruby_file(file_path: str) -> FileAST:
                         mname = _text(mn, source)
                         full_name = f"{class_name}.{mname}"
                         params = _extract_ruby_params(child, source)
+                        cls_singleton_qn = f"{class_name}.{mname}"
                         ast.functions.append(FunctionDef(
                             name=full_name,
                             line=child.start_point[0] + 1,
@@ -278,6 +314,7 @@ def parse_ruby_file(file_path: str) -> FileAST:
                             visibility="public",
                             params=params,
                             is_method=True,
+                            qualified_name=cls_singleton_qn,
                         ))
                         ast.exports.append(full_name)
                         # Also add to the class methods list

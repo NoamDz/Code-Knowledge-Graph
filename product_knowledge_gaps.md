@@ -132,6 +132,50 @@ type: project
 - Is `redisClient` a custom wrapper or a standard library?
 - **Why:** Could add Go Redis abstraction detection similar to Lua
 
+### G. Inheritance & Type Patterns (needed for call resolution improvements)
+
+**G1.** How deep are class inheritance hierarchies in the Python codebase?
+- Is it mostly flat (1 level: `class Foo(Base)`) or deep (3+ levels)?
+- Are there mixins or multiple inheritance patterns?
+- Run: `grep -rn "class.*(" src/ --include="*.py" | head -30`
+- **Why:** Inheritance-aware call resolution uses BFS through parent classes. If hierarchies are flat, a simple parent lookup suffices; if deep, we need full BFS.
+
+**G2.** Does the Python code use type hints consistently?
+- e.g., `def process(self, user: User) -> Result:` vs `def process(self, user):`
+- Run: `grep -rn "def.*->.*:" src/ --include="*.py" | wc -l` (count of functions with return type hints)
+- Run: `grep -rn "def " src/ --include="*.py" | wc -l` (total function count)
+- **Why:** If type hints are common, we can infer variable types and resolve method calls much more accurately.
+
+**G3.** In Ruby, how are classes organized?
+- Are classes typically inside modules (e.g., `module Services; class UserService; end; end`)?
+- Is there heavy use of `include`/`extend` for mixin-based method sharing?
+- Run: `grep -rn "class.*<" src/ --include="*.rb" | head -20` (classes with inheritance)
+- **Why:** Determines whether Ruby call resolution should track mixin chains.
+
+**G4.** In Lua, are there OOP-like inheritance patterns?
+- e.g., `setmetatable(Child, {__index = Parent})` for prototype chains?
+- Or is it mostly flat modules with no inheritance?
+- Run: `grep -rn "setmetatable.*__index" src/ --include="*.lua" | head -10`
+- **Why:** If Lua uses metatable inheritance, we should resolve method calls through the chain.
+
+**G5.** In Go, are interfaces used heavily?
+- Do structs commonly implement shared interfaces?
+- Run: `grep -rn "type.*interface" src/ --include="*.go" | head -10`
+- **Why:** Go interface satisfaction is implicit — detecting which structs implement which interfaces enables method resolution across types.
+
+### H. Code Snippet Retrieval (needed for MCP tool)
+
+**H1.** Are source files accessible from the machine running the MCP server?
+- Is Memgraph on the same machine as the source code?
+- Are file paths in the graph absolute paths valid on the MCP server's filesystem?
+- **Why:** The code snippet tool needs to read source files by path to extract function bodies.
+
+**H2.** What would be the most useful code retrieval queries?
+- "Show me the implementation of function X"?
+- "Show me all functions in file Y"?
+- "Show me the 10 lines around line N in file Z"?
+- **Why:** Determines what parameters the MCP tool should accept.
+
 ---
 
 ## How to Provide Answers

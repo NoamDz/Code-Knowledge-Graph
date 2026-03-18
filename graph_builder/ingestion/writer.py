@@ -2,6 +2,10 @@
 
 Uses the neo4j Python driver (compatible with Memgraph via Bolt protocol).
 All writes use MERGE to be idempotent.
+
+High-volume writes (File, Function, Class nodes; DEFINES, IMPORTS, CALLS edges)
+are buffered and flushed in batches using UNWIND for performance.
+Low-volume writes with complex conditional logic remain as direct _run() calls.
 """
 
 from __future__ import annotations
@@ -18,64 +22,206 @@ class GraphWriter:
     """Writes parsed code entities to Memgraph as nodes and edges."""
 
     def __init__(self, uri: str = "bolt://localhost:7687",
-                 username: str = "", password: str = ""):
+                 username: str = "", password: str = "",
+                 flush_threshold: int = 500):
         auth = (username, password) if username else None
         self.driver = GraphDatabase.driver(uri, auth=auth)
         self._write_count = 0
+        self._flush_threshold = flush_threshold
+
+        # Buffers for batched writes
+        # Node buffers: label -> list of param dicts
+        self._node_buffers: dict[str, list[dict]] = {}
+        # Edge buffers: edge_key -> list of param dicts
+        # edge_key encodes the UNWIND query pattern (e.g. "CALLS_resolved", "CALLS_unresolved")
+        self._edge_buffers: dict[str, list[dict]] = {}
 
     def close(self):
+        self.flush_all()
         self.driver.close()
 
     def _run(self, query: str, **params):
-        """Execute a Cypher query."""
+        """Execute a single Cypher query (used for low-volume writes)."""
         with self.driver.session() as session:
             session.run(query, **params)
             self._write_count += 1
 
-    # --- Node upserts ---
+    # --- Buffering infrastructure ---
+
+    def _buffer_node(self, label: str, params: dict):
+        """Accumulate a node upsert. Auto-flushes when threshold is reached."""
+        buf = self._node_buffers.setdefault(label, [])
+        buf.append(params)
+        if len(buf) >= self._flush_threshold:
+            self._flush_nodes(label)
+
+    def _buffer_edge(self, edge_type: str, params: dict):
+        """Accumulate an edge upsert. Auto-flushes when threshold is reached."""
+        buf = self._edge_buffers.setdefault(edge_type, [])
+        buf.append(params)
+        if len(buf) >= self._flush_threshold:
+            self._flush_edges(edge_type)
+
+    def _flush_nodes(self, label: str):
+        """Flush a single node buffer using UNWIND for batch MERGE."""
+        batch = self._node_buffers.pop(label, [])
+        if not batch:
+            return
+
+        query = self._node_queries.get(label)
+        if not query:
+            # Fallback: should not happen if all labels are registered
+            return
+
+        with self.driver.session() as session:
+            session.run(query, batch=batch)
+        self._write_count += len(batch)
+
+    def _flush_edges(self, edge_type: str):
+        """Flush a single edge buffer using UNWIND for batch MERGE."""
+        batch = self._edge_buffers.pop(edge_type, [])
+        if not batch:
+            return
+
+        query = self._edge_queries.get(edge_type)
+        if not query:
+            return
+
+        with self.driver.session() as session:
+            session.run(query, batch=batch)
+        self._write_count += len(batch)
+
+    def flush_all(self):
+        """Flush all remaining node and edge buffers.
+
+        Must be called after all items are buffered to ensure nothing is left
+        un-written. The close() method calls this automatically.
+        """
+        # Flush nodes first (edges may reference them)
+        for label in list(self._node_buffers.keys()):
+            self._flush_nodes(label)
+        # Then flush edges
+        for edge_type in list(self._edge_buffers.keys()):
+            self._flush_edges(edge_type)
+
+    # --- UNWIND query templates ---
+    # These are the batched equivalents of the individual MERGE statements.
+
+    _node_queries: dict[str, str] = {
+        "File": """
+            UNWIND $batch AS row
+            MERGE (f:File {path: row.path})
+            SET f.language = row.language,
+                f.module_name = row.module_name,
+                f.pattern_type = row.pattern_type,
+                f.last_indexed = timestamp()
+        """,
+        "Function": """
+            UNWIND $batch AS row
+            MERGE (fn:Function {name: row.name, file: row.file})
+            SET fn.line = row.line,
+                fn.line_end = row.line_end,
+                fn.visibility = row.visibility,
+                fn.is_method = row.is_method,
+                fn.params = row.params,
+                fn.qualified_name = row.qualified_name
+        """,
+        "Class": """
+            UNWIND $batch AS row
+            MERGE (c:Class {name: row.name, file: row.file})
+            SET c.line = row.line,
+                c.line_end = row.line_end,
+                c.parent_class = row.parent_class,
+                c.mixins = row.mixins,
+                c.methods = row.methods,
+                c.qualified_name = row.qualified_name
+        """,
+    }
+
+    _edge_queries: dict[str, str] = {
+        "DEFINES_Function": """
+            UNWIND $batch AS row
+            MATCH (f:File {path: row.file})
+            MATCH (fn:Function {name: row.name, file: row.file})
+            MERGE (f)-[:DEFINES]->(fn)
+        """,
+        "DEFINES_Class": """
+            UNWIND $batch AS row
+            MATCH (f:File {path: row.file})
+            MATCH (c:Class {name: row.name, file: row.file})
+            MERGE (f)-[:DEFINES]->(c)
+        """,
+        "IMPORTS": """
+            UNWIND $batch AS row
+            MATCH (a:File {path: row.from_file})
+            MATCH (b:File {path: row.to_file})
+            MERGE (a)-[r:IMPORTS {module: row.module}]->(b)
+        """,
+        "CALLS_resolved": """
+            UNWIND $batch AS row
+            MERGE (a:Function {name: row.from_func, file: row.from_file})
+            MERGE (b:Function {name: row.to_func, file: row.to_file})
+            MERGE (a)-[:CALLS {line: row.line, is_pcall: row.is_pcall}]->(b)
+        """,
+        "CALLS_unresolved": """
+            UNWIND $batch AS row
+            MERGE (a:Function {name: row.from_func, file: row.from_file})
+            MERGE (b:Function {name: row.to_func})
+            MERGE (a)-[:CALLS {line: row.line, is_pcall: row.is_pcall}]->(b)
+        """,
+    }
+
+    # --- Node upserts (buffered) ---
 
     def upsert_file(self, file_path: str, language: str, module_name: str | None = None,
                     pattern_type: str | None = None):
-        self._run("""
-            MERGE (f:File {path: $path})
-            SET f.language = $language,
-                f.module_name = $module_name,
-                f.pattern_type = $pattern_type,
-                f.last_indexed = timestamp()
-        """, path=file_path, language=language,
-             module_name=module_name, pattern_type=pattern_type)
+        self._buffer_node("File", {
+            "path": file_path,
+            "language": language,
+            "module_name": module_name,
+            "pattern_type": pattern_type,
+        })
 
     def upsert_function(self, file_path: str, func: FunctionDef):
-        self._run("""
-            MERGE (fn:Function {name: $name, file: $file})
-            SET fn.line = $line,
-                fn.line_end = $line_end,
-                fn.visibility = $visibility,
-                fn.is_method = $is_method,
-                fn.params = $params
-            WITH fn
-            MATCH (f:File {path: $file})
-            MERGE (f)-[:DEFINES]->(fn)
-        """, name=func.name, file=file_path, line=func.line,
-             line_end=func.line_end, visibility=func.visibility,
-             is_method=func.is_method, params=func.params)
+        params = {
+            "name": func.name,
+            "file": file_path,
+            "line": func.line,
+            "line_end": func.line_end,
+            "visibility": func.visibility,
+            "is_method": func.is_method,
+            "params": func.params,
+            "qualified_name": func.qualified_name,
+        }
+        # Buffer the Function node
+        self._buffer_node("Function", params)
+        # Buffer the DEFINES edge (File -> Function)
+        self._buffer_edge("DEFINES_Function", {
+            "file": file_path,
+            "name": func.name,
+        })
 
     def upsert_class(self, file_path: str, cls: ClassDef):
-        self._run("""
-            MERGE (c:Class {name: $name, file: $file})
-            SET c.line = $line,
-                c.line_end = $line_end,
-                c.parent_class = $parent_class,
-                c.mixins = $mixins,
-                c.methods = $methods
-            WITH c
-            MATCH (f:File {path: $file})
-            MERGE (f)-[:DEFINES]->(c)
-        """, name=cls.name, file=file_path, line=cls.line,
-             line_end=cls.line_end, parent_class=cls.parent_class,
-             mixins=cls.mixins, methods=cls.methods)
+        params = {
+            "name": cls.name,
+            "file": file_path,
+            "line": cls.line,
+            "line_end": cls.line_end,
+            "parent_class": cls.parent_class,
+            "mixins": cls.mixins,
+            "methods": cls.methods,
+            "qualified_name": cls.qualified_name,
+        }
+        # Buffer the Class node
+        self._buffer_node("Class", params)
+        # Buffer the DEFINES edge (File -> Class)
+        self._buffer_edge("DEFINES_Class", {
+            "file": file_path,
+            "name": cls.name,
+        })
 
-        # Create EXTENDS edge if there's a parent class
+        # EXTENDS and INCLUDES edges stay as direct _run() calls
+        # because they are conditional and low-volume
         if cls.parent_class:
             self._run("""
                 MATCH (c:Class {name: $name, file: $file})
@@ -83,7 +229,6 @@ class GraphWriter:
                 MERGE (c)-[:EXTENDS]->(parent)
             """, name=cls.name, file=file_path, parent_name=cls.parent_class)
 
-        # Create INCLUDES edges for mixins
         for mixin in cls.mixins:
             self._run("""
                 MATCH (c:Class {name: $name, file: $file})
@@ -91,17 +236,20 @@ class GraphWriter:
                 MERGE (c)-[:INCLUDES]->(m)
             """, name=cls.name, file=file_path, mixin=mixin)
 
-    # --- Edge upserts ---
+    # --- Edge upserts (buffered) ---
 
     def upsert_import(self, from_file: str, to_file: str, module_string: str):
-        self._run("""
-            MATCH (a:File {path: $from_file})
-            MATCH (b:File {path: $to_file})
-            MERGE (a)-[r:IMPORTS {module: $module}]->(b)
-        """, from_file=from_file, to_file=to_file, module=module_string)
+        self._buffer_edge("IMPORTS", {
+            "from_file": from_file,
+            "to_file": to_file,
+            "module": module_string,
+        })
 
     def upsert_unresolved_import(self, from_file: str, module_string: str, is_dynamic: bool = False):
-        """Record an import that couldn't be resolved to a file."""
+        """Record an import that couldn't be resolved to a file.
+
+        Kept as direct _run() because it involves conditional SET on the Module node.
+        """
         self._run("""
             MATCH (f:File {path: $from_file})
             MERGE (m:Module {name: $module})
@@ -113,23 +261,24 @@ class GraphWriter:
                     to_func: str, to_file: str | None = None,
                     line: int = 0, is_pcall: bool = False):
         if to_file:
-            self._run("""
-                MERGE (a:Function {name: $from_func, file: $from_file})
-                MERGE (b:Function {name: $to_func, file: $to_file})
-                MERGE (a)-[:CALLS {line: $line, is_pcall: $is_pcall}]->(b)
-            """, from_func=from_func, from_file=from_file,
-                 to_func=to_func, to_file=to_file,
-                 line=line, is_pcall=is_pcall)
+            self._buffer_edge("CALLS_resolved", {
+                "from_func": from_func,
+                "from_file": from_file,
+                "to_func": to_func,
+                "to_file": to_file,
+                "line": line,
+                "is_pcall": is_pcall,
+            })
         else:
-            # Unresolved call — create edge to a placeholder
-            self._run("""
-                MERGE (a:Function {name: $from_func, file: $from_file})
-                MERGE (b:Function {name: $to_func})
-                MERGE (a)-[:CALLS {line: $line, is_pcall: $is_pcall}]->(b)
-            """, from_func=from_func, from_file=from_file,
-                 to_func=to_func, line=line, is_pcall=is_pcall)
+            self._buffer_edge("CALLS_unresolved", {
+                "from_func": from_func,
+                "from_file": from_file,
+                "to_func": to_func,
+                "line": line,
+                "is_pcall": is_pcall,
+            })
 
-    # --- OpenResty-specific ---
+    # --- OpenResty-specific (kept as direct _run() — low volume, complex logic) ---
 
     def upsert_nginx_endpoint(self, location: str, phase: str,
                                lua_file: str | None, is_inline: bool):
@@ -191,7 +340,6 @@ class GraphWriter:
     def upsert_http_call(self, url_or_path: str, method: str,
                           function: str, file_path: str, line: int):
         """Create an HTTP_CALLS edge from a function to an Endpoint (if path matches)."""
-        # Try to link to an existing Endpoint node if the URL looks like a path
         if url_or_path.startswith("/"):
             self._run("""
                 MERGE (fn:Function {name: $func, file: $file})
@@ -200,7 +348,6 @@ class GraphWriter:
             """, func=function, file=file_path,
                  path=url_or_path, method=method, line=line)
         else:
-            # External URL — store as property on a generic Endpoint node
             self._run("""
                 MERGE (fn:Function {name: $func, file: $file})
                 MERGE (e:Endpoint {path: $url})
@@ -212,7 +359,6 @@ class GraphWriter:
     def upsert_proxy_pass(self, location_path: str, target: str,
                            upstream_name: str | None = None):
         """Create a PROXIES_TO edge from an Endpoint to a Service."""
-        # Derive service name from upstream name or target URL
         service_name = upstream_name or target
         self._run("""
             MERGE (e:Endpoint {path: $location})
@@ -224,7 +370,6 @@ class GraphWriter:
 
     def upsert_upstream(self, name: str, servers: list[str]):
         """Create or update a Service node from an upstream block."""
-        # Detect unix sockets
         socket_path = None
         for srv in servers:
             if "unix:" in srv:
@@ -245,7 +390,7 @@ class GraphWriter:
 
         Args:
             ast: The parsed file AST
-            resolved_imports: module_string → file_path mapping from resolver
+            resolved_imports: module_string -> file_path mapping from resolver
         """
         resolved_imports = resolved_imports or {}
 
@@ -275,7 +420,6 @@ class GraphWriter:
             to_file = None
             to_func = call.callee_string
             if call.resolved_module and call.resolved_function:
-                # Try to find the resolved module's file
                 to_file = resolved_imports.get(call.resolved_module)
                 to_func = call.resolved_function
             self.upsert_call(

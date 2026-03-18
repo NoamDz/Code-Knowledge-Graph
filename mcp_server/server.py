@@ -14,7 +14,7 @@ import os
 from fastmcp import FastMCP
 
 from .query_engine import QueryEngine
-from .tools import navigation, tracing, impact, search
+from .tools import navigation, tracing, impact, search, snippets
 
 mcp = FastMCP("bob-code-graph")
 
@@ -147,6 +147,26 @@ def find_unresolved(language: str | None = None) -> str:
     actual files. Useful for identifying external deps vs parser gaps.
     """
     return search.find_unresolved(_get_engine(), language)
+
+
+# --- Snippet tools ---
+
+@mcp.tool()
+def get_code_snippet(name: str, context_lines: int = 0) -> str:
+    """Retrieves the source code of a function or class by name.
+    Searches the graph for matching symbols and reads the actual source file.
+    Example: get_code_snippet('parse_js_file')
+    """
+    return snippets.get_code_snippet(_get_engine(), name, context_lines)
+
+
+@mcp.tool()
+def get_file_outline(file_path: str) -> str:
+    """Shows the structural outline of a file: all defined functions, classes,
+    exports, and imports with line numbers.
+    Example: get_file_outline('graph_builder/parsers/js_parser.py')
+    """
+    return snippets.get_file_outline(_get_engine(), file_path)
 
 
 # --- Diagnostic tools ---

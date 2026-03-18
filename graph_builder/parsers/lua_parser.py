@@ -1038,11 +1038,14 @@ def parse_lua_file(file_path: str) -> FileAST:
     # 4. Find exports
     ast.exports = _find_exports(root, source, ast.module_info)
 
-    # 5. Mark exported functions as public
+    # 5. Mark exported functions as public and generate qualified names
     for func in ast.functions:
         func_base = func.name.split(".")[-1].split(":")[-1]
         if func_base in ast.exports:
             func.visibility = "public"
+        # Generate qualified name: module_name.func_base_name
+        if ast.module_name:
+            func.qualified_name = f"{ast.module_name}.{func_base}"
 
     # 6. Extract calls
     _extract_calls(root, source, ast, binding_map)

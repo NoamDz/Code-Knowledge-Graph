@@ -59,6 +59,22 @@ def _find_enclosing(node, source: bytes) -> str:
     return func_name or "<module>"
 
 
+def _file_path_to_module(file_path: str) -> str | None:
+    """Convert a file path to a Python module path.
+
+    E.g., 'graph_builder/parsers/js_parser.py' -> 'graph_builder.parsers.js_parser'
+    """
+    p = Path(file_path)
+    # Strip .py extension
+    if p.suffix != ".py":
+        return None
+    # Convert path separators to dots, strip leading dots
+    parts = list(p.with_suffix("").parts)
+    if not parts:
+        return None
+    return ".".join(parts)
+
+
 def parse_python_file(file_path: str) -> FileAST:
     """Parse a Python file and extract all code entities."""
     parser = Parser(PY)
@@ -68,6 +84,7 @@ def parse_python_file(file_path: str) -> FileAST:
 
     ast = FileAST(file_path=file_path, language="python")
     binding_map: dict[str, str] = {}
+    _module_path = _file_path_to_module(file_path)
 
     # --- Imports ---
     for node in _walk_all(root, "import_statement"):
@@ -134,12 +151,18 @@ def parse_python_file(file_path: str) -> FileAST:
                 if mn:
                     methods.append(_text(mn, source))
 
+        # Build qualified name for class
+        cls_qn = None
+        if _module_path:
+            cls_qn = f"{_module_path}.{class_name}"
+
         ast.classes.append(ClassDef(
             name=class_name,
             line=node.start_point[0] + 1,
             line_end=node.end_point[0] + 1,
             parent_class=parent_class,
             methods=methods,
+            qualified_name=cls_qn,
         ))
 
     # --- Functions ---
@@ -184,6 +207,24 @@ def parse_python_file(file_path: str) -> FileAST:
                     if pname:
                         params.append(_text(pname, source))
 
+        # Build qualified name for function
+        func_qn = None
+        if _module_path:
+            # Find enclosing class name for methods
+            enclosing_class = None
+            p = node.parent
+            while p:
+                if p.type == "class_definition":
+                    cn = p.child_by_field_name("name")
+                    if cn:
+                        enclosing_class = _text(cn, source)
+                    break
+                p = p.parent
+            if enclosing_class:
+                func_qn = f"{_module_path}.{enclosing_class}.{func_name}"
+            else:
+                func_qn = f"{_module_path}.{func_name}"
+
         ast.functions.append(FunctionDef(
             name=func_name,
             line=node.start_point[0] + 1,
@@ -192,6 +233,7 @@ def parse_python_file(file_path: str) -> FileAST:
             params=params,
             is_method=is_method,
             decorators=decorators,
+            qualified_name=func_qn,
         ))
 
     # --- Calls ---

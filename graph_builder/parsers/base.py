@@ -38,6 +38,7 @@ class FunctionDef:
     params: list[str] = field(default_factory=list)
     is_method: bool = False       # uses : syntax (self param)
     decorators: list[str] = field(default_factory=list)  # Python/@decorators
+    qualified_name: str | None = None  # fully-qualified name (e.g., "module.Class.method")
 
 
 @dataclass
@@ -124,6 +125,7 @@ class ClassDef:
     parent_class: str | None = None   # superclass name
     mixins: list[str] = field(default_factory=list)  # Ruby include/extend
     methods: list[str] = field(default_factory=list)  # method names defined in this class
+    qualified_name: str | None = None  # fully-qualified name (e.g., "module::ClassName")
 
 
 @dataclass

@@ -225,6 +225,7 @@ def build(ctx):
         for file_path, ast in all_asts.items():
             writer.ingest_file_ast(ast, resolved_imports.get(file_path, {}))
 
+        writer.flush_all()
         click.echo(f"  {writer.write_count} graph writes")
         writer.close()
 
@@ -330,10 +331,77 @@ def update(ctx):
                 click.echo(f"  ✗ {fp} (skipped)")
 
         click.echo(f"\nUpdated {success}/{len(all_changed)} files")
+        writer.flush_all()
         writer.close()
 
     except Exception as e:
         click.echo(f"Memgraph connection failed: {e}", err=True)
+        sys.exit(1)
+
+
+@cli.command()
+@click.option("-o", "--output", default="graph_export.json", help="Output JSON file path")
+@click.pass_context
+def export(ctx, output):
+    """Export the full graph as JSON for offline analysis."""
+    import json
+    from datetime import datetime
+
+    config = ctx.obj["config"]
+
+    try:
+        from .ingestion.writer import GraphWriter
+        writer = GraphWriter(
+            uri=config.memgraph.uri,
+            username=config.memgraph.username,
+            password=config.memgraph.password,
+        )
+
+        nodes = []
+        edges = []
+
+        with writer.driver.session() as session:
+            # Export all nodes
+            result = session.run("MATCH (n) RETURN id(n) AS id, labels(n) AS labels, properties(n) AS props")
+            for record in result:
+                nodes.append({
+                    "id": record["id"],
+                    "labels": record["labels"],
+                    "properties": dict(record["props"]),
+                })
+
+            # Export all edges
+            result = session.run(
+                "MATCH (a)-[r]->(b) RETURN id(a) AS src, id(b) AS dst, "
+                "type(r) AS type, properties(r) AS props"
+            )
+            for record in result:
+                edges.append({
+                    "source": record["src"],
+                    "target": record["dst"],
+                    "type": record["type"],
+                    "properties": dict(record["props"]),
+                })
+
+        writer.close()
+
+        export_data = {
+            "nodes": nodes,
+            "edges": edges,
+            "metadata": {
+                "exported_at": datetime.now().isoformat(),
+                "node_count": len(nodes),
+                "edge_count": len(edges),
+            },
+        }
+
+        with open(output, "w") as f:
+            json.dump(export_data, f, indent=2, default=str)
+
+        click.echo(f"Exported {len(nodes)} nodes, {len(edges)} edges to {output}")
+
+    except Exception as e:
+        click.echo(f"Export failed: {e}", err=True)
         sys.exit(1)
 
 

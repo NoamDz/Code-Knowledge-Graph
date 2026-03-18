@@ -160,11 +160,13 @@ def parse_go_file(file_path: str) -> FileAST:
                             if mn:
                                 methods.append(_text(mn, source))
 
+                type_qn = f"{ast.module_name}.{type_name}" if ast.module_name else type_name
                 ast.classes.append(ClassDef(
                     name=type_name,
                     line=type_spec.start_point[0] + 1,
                     line_end=type_spec.end_point[0] + 1,
                     methods=methods,
+                    qualified_name=type_qn,
                 ))
 
                 if _is_exported(type_name):
@@ -179,12 +181,14 @@ def parse_go_file(file_path: str) -> FileAST:
         params = _extract_params(func_node, source)
         visibility = "public" if _is_exported(func_name) else "private"
 
+        func_qn = f"{ast.module_name}.{func_name}" if ast.module_name else func_name
         ast.functions.append(FunctionDef(
             name=func_name,
             line=func_node.start_point[0] + 1,
             line_end=func_node.end_point[0] + 1,
             visibility=visibility,
             params=params,
+            qualified_name=func_qn,
         ))
 
         if _is_exported(func_name):
@@ -210,6 +214,14 @@ def parse_go_file(file_path: str) -> FileAST:
         params = _extract_params(method_node, source)
         visibility = "public" if _is_exported(method_name) else "private"
 
+        # Qualified name: package.Type.Method
+        if ast.module_name and receiver_type:
+            method_qn = f"{ast.module_name}.{receiver_type}.{method_name}"
+        elif ast.module_name:
+            method_qn = f"{ast.module_name}.{method_name}"
+        else:
+            method_qn = full_name
+
         ast.functions.append(FunctionDef(
             name=full_name,
             line=method_node.start_point[0] + 1,
@@ -217,6 +229,7 @@ def parse_go_file(file_path: str) -> FileAST:
             visibility=visibility,
             params=params,
             is_method=True,
+            qualified_name=method_qn,
         ))
 
         # Add methods to their ClassDef

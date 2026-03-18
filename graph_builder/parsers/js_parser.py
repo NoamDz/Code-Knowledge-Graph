@@ -122,6 +122,10 @@ def parse_js_file(file_path: str) -> FileAST:
 
     ast = FileAST(file_path=file_path, language="javascript")
     binding_map: dict[str, str] = {}
+    _stem = Path(file_path).stem  # filename without extension (e.g., "user_controller")
+    # For .js.erb, strip both extensions
+    if _stem.endswith(".js"):
+        _stem = _stem[:-3]
 
     # --- CommonJS require() ---
     for call_node in _walk_all(root, "call_expression"):
@@ -223,6 +227,7 @@ def parse_js_file(file_path: str) -> FileAST:
                         mname = _text(mn, source)
                         methods.append(mname)
                         params = _extract_params(member, source)
+                        method_qn = f"{_stem}.{class_name}.{mname}"
                         ast.functions.append(FunctionDef(
                             name=mname,
                             line=member.start_point[0] + 1,
@@ -230,14 +235,17 @@ def parse_js_file(file_path: str) -> FileAST:
                             visibility="private" if mname.startswith("_") else "public",
                             params=params,
                             is_method=True,
+                            qualified_name=method_qn,
                         ))
 
+        cls_qn = f"{_stem}.{class_name}"
         ast.classes.append(ClassDef(
             name=class_name,
             line=cls_node.start_point[0] + 1,
             line_end=cls_node.end_point[0] + 1,
             parent_class=parent_class,
             methods=methods,
+            qualified_name=cls_qn,
         ))
 
     # --- Top-level functions ---
@@ -245,12 +253,14 @@ def parse_js_file(file_path: str) -> FileAST:
         name_node = func_node.child_by_field_name("name")
         if not name_node:
             continue
+        fname = _text(name_node, source)
         ast.functions.append(FunctionDef(
-            name=_text(name_node, source),
+            name=fname,
             line=func_node.start_point[0] + 1,
             line_end=func_node.end_point[0] + 1,
             visibility="public",
             params=_extract_params(func_node, source),
+            qualified_name=f"{_stem}.{fname}",
         ))
 
     # --- Arrow functions assigned to const/let/var ---
@@ -273,6 +283,7 @@ def parse_js_file(file_path: str) -> FileAST:
             line_end=val_node.end_point[0] + 1,
             visibility="public",
             params=_extract_params(val_node, source),
+            qualified_name=f"{_stem}.{fname}",
         ))
 
     # --- Calls ---
