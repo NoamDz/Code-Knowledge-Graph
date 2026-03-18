@@ -514,6 +514,43 @@ def _extract_js_http_calls(root, source: bytes, ast: FileAST):
                         function=enclosing, line=call_node.start_point[0] + 1,
                     ))
 
+    # sendRequest(type, url, ...) — custom HTTP wrapper
+    for call_node in _walk_all(root, "call_expression"):
+        func = call_node.child_by_field_name("function")
+        if not func:
+            continue
+        callee = _text(func, source)
+        args = call_node.child_by_field_name("arguments")
+
+        if callee == "sendRequest" and args and args.named_child_count >= 2:
+            method_arg = args.named_children[0]
+            url_arg = args.named_children[1]
+            method = _try_get_string(method_arg, source)
+            url = _try_get_string(url_arg, source)
+            if url:
+                enclosing = _find_enclosing(call_node, source)
+                ast.http_calls.append(HttpCallRef(
+                    url_or_path=url,
+                    method=(method or "unknown").upper(),
+                    function=enclosing,
+                    line=call_node.start_point[0] + 1,
+                ))
+
+        # Net._request({ type: "POST", url: "/api/assess" }, ...) — custom HTTP wrapper
+        elif callee == "Net._request" and args and args.named_child_count >= 1:
+            config_arg = args.named_children[0]
+            if config_arg.type == "object":
+                url = _extract_prop_string(config_arg, source, "url")
+                method = _extract_method_from_object(config_arg, source)
+                if url:
+                    enclosing = _find_enclosing(call_node, source)
+                    ast.http_calls.append(HttpCallRef(
+                        url_or_path=url,
+                        method=(method or "unknown").upper(),
+                        function=enclosing,
+                        line=call_node.start_point[0] + 1,
+                    ))
+
 
 def _try_get_string(node, source: bytes) -> str | None:
     """Try to extract a string value from a node."""

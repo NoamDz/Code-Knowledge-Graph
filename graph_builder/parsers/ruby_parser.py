@@ -240,87 +240,106 @@ def parse_ruby_file(file_path: str) -> FileAST:
             line=call_node.start_point[0] + 1,
         ))
 
-    # --- Module definitions ---
-    for mod_node in _walk_all(root, "module"):
-        name_node = mod_node.child_by_field_name("name")
-        if not name_node:
-            continue
-        module_name = _text(name_node, source)
-        # Export module name
-        ast.exports.append(module_name)
-
-        # Extract module-level methods (methods inside module but not inside a class)
-        body = mod_node.child_by_field_name("body")
-        if body:
-            for child in body.children:
-                # Singleton methods: def self.method_name
-                if child.type == "singleton_method":
-                    mn = child.child_by_field_name("name")
-                    if mn:
-                        mname = _text(mn, source)
-                        full_name = f"{module_name}.{mname}"
-                        params = _extract_ruby_params(child, source)
-                        singleton_qn = f"{module_name}.{mname}"
-                        ast.functions.append(FunctionDef(
-                            name=full_name,
-                            line=child.start_point[0] + 1,
-                            line_end=child.end_point[0] + 1,
-                            visibility="public",
-                            params=params,
-                            is_method=True,
-                            qualified_name=singleton_qn,
-                        ))
+    # --- Module and nested class/module detection ---
+    def _find_nested_types(node, source, ast, namespace):
+        """Recursively find classes and modules, tracking full namespace."""
+        for child in node.children:
+            if child.type == "module":
+                name_node = child.child_by_field_name("name")
+                if name_node:
+                    mod_name = _text(name_node, source)
+                    new_ns = namespace + [mod_name]
+                    full_name = "::".join(new_ns)
+                    if full_name not in ast.exports:
                         ast.exports.append(full_name)
+                    # Also export the bare module name for backward compat
+                    if mod_name not in ast.exports:
+                        ast.exports.append(mod_name)
 
-                # Regular methods inside module (not class) are module functions
-                if child.type == "method":
-                    mn = child.child_by_field_name("name")
-                    if mn:
-                        mname = _text(mn, source)
-                        # Only add if not already captured inside a class
-                        if not any(f.name == mname and f.is_method for f in ast.functions):
-                            params = _extract_ruby_params(child, source)
-                            mod_method_qn = f"{module_name}#{mname}"
-                            ast.functions.append(FunctionDef(
-                                name=mname,
-                                line=child.start_point[0] + 1,
-                                line_end=child.end_point[0] + 1,
-                                visibility="public",
-                                params=params,
-                                is_method=True,
-                                qualified_name=mod_method_qn,
-                            ))
+                    body = child.child_by_field_name("body")
+                    if body:
+                        # Module-level singleton methods
+                        for member in body.children:
+                            if member.type == "singleton_method":
+                                mn = member.child_by_field_name("name")
+                                if mn:
+                                    mname = _text(mn, source)
+                                    func_full = f"{full_name}.{mname}"
+                                    params = _extract_ruby_params(member, source)
+                                    ast.functions.append(FunctionDef(
+                                        name=func_full,
+                                        line=member.start_point[0] + 1,
+                                        line_end=member.end_point[0] + 1,
+                                        visibility="public",
+                                        params=params,
+                                        is_method=True,
+                                        qualified_name=func_full,
+                                    ))
+                                    if func_full not in ast.exports:
+                                        ast.exports.append(func_full)
 
-    # --- Singleton methods on classes (def self.method_name) ---
-    for class_node in _walk_all(root, "class"):
-        name_node = class_node.child_by_field_name("name")
-        if not name_node:
-            continue
-        class_name = _text(name_node, source)
-        body = class_node.child_by_field_name("body")
-        if body:
-            for child in body.children:
-                if child.type == "singleton_method":
-                    mn = child.child_by_field_name("name")
-                    if mn:
-                        mname = _text(mn, source)
-                        full_name = f"{class_name}.{mname}"
-                        params = _extract_ruby_params(child, source)
-                        cls_singleton_qn = f"{class_name}.{mname}"
-                        ast.functions.append(FunctionDef(
-                            name=full_name,
-                            line=child.start_point[0] + 1,
-                            line_end=child.end_point[0] + 1,
-                            visibility="public",
-                            params=params,
-                            is_method=True,
-                            qualified_name=cls_singleton_qn,
-                        ))
-                        ast.exports.append(full_name)
-                        # Also add to the class methods list
+                            # Regular methods inside module (not class) are module functions
+                            if member.type == "method":
+                                mn = member.child_by_field_name("name")
+                                if mn:
+                                    mname = _text(mn, source)
+                                    if not any(f.name == mname and f.is_method for f in ast.functions):
+                                        params = _extract_ruby_params(member, source)
+                                        mod_method_qn = f"{full_name}#{mname}"
+                                        ast.functions.append(FunctionDef(
+                                            name=mname,
+                                            line=member.start_point[0] + 1,
+                                            line_end=member.end_point[0] + 1,
+                                            visibility="public",
+                                            params=params,
+                                            is_method=True,
+                                            qualified_name=mod_method_qn,
+                                        ))
+
+                        # Recurse into body for nested modules/classes
+                        _find_nested_types(body, source, ast, new_ns)
+
+            elif child.type == "class":
+                name_node = child.child_by_field_name("name")
+                if name_node:
+                    cls_name = _text(name_node, source)
+                    if namespace:
+                        full_name = "::".join(namespace + [cls_name])
+                        # Update the ClassDef's qualified_name if not already set
                         for cls in ast.classes:
-                            if cls.name == class_name:
-                                cls.methods.append(f"self.{mname}")
+                            if cls.name == cls_name and (not cls.qualified_name or cls.qualified_name == cls_name):
+                                cls.qualified_name = full_name
+                        if full_name not in ast.exports:
+                            ast.exports.append(full_name)
+
+                    # Find singleton methods inside nested class
+                    body = child.child_by_field_name("body")
+                    if body:
+                        cls_qn = "::".join(namespace + [cls_name]) if namespace else cls_name
+                        for member in body.children:
+                            if member.type == "singleton_method":
+                                mn = member.child_by_field_name("name")
+                                if mn:
+                                    mname = _text(mn, source)
+                                    func_full = f"{cls_qn}.{mname}"
+                                    params = _extract_ruby_params(member, source)
+                                    ast.functions.append(FunctionDef(
+                                        name=func_full,
+                                        line=member.start_point[0] + 1,
+                                        line_end=member.end_point[0] + 1,
+                                        visibility="public",
+                                        params=params,
+                                        is_method=True,
+                                        qualified_name=func_full,
+                                    ))
+                                    if func_full not in ast.exports:
+                                        ast.exports.append(func_full)
+                                    # Also add to the class methods list
+                                    for cls in ast.classes:
+                                        if cls.name == cls_name:
+                                            cls.methods.append(f"self.{mname}")
+
+    _find_nested_types(root, source, ast, [])
 
     # --- Exports ---
     # Export: public methods

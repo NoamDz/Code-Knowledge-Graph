@@ -927,6 +927,8 @@ def _extract_http_calls_lua(root, source: bytes, ast: FileAST, binding_map: dict
     Detects patterns like:
         httpc:request_uri("http://python-svc:8080/api/process", {...})
         ngx.location.capture("/internal/api")
+        httpc:connect("unix:/tmp/model_prediction.sock")
+        httpc:request({ path = "/predict", method = "POST" })
     """
     http_modules = {"resty.http"}
     http_vars = set()
@@ -997,6 +999,41 @@ def _extract_http_calls_lua(root, source: bytes, ast: FileAST, binding_map: dict
                                             if val and val.type == "string":
                                                 method = _get_string_value(val, source)
 
+                # httpc:connect("unix:/tmp/sock") — Unix socket connection
+                elif table_text in http_vars and method_text == "connect":
+                    first_arg = args.named_children[0]
+                    if first_arg.type == "string":
+                        connect_target = _get_string_value(first_arg, source)
+                        if connect_target.startswith("unix:"):
+                            ast.http_calls.append(HttpCallRef(
+                                url_or_path=connect_target,
+                                method="UNIX_CONNECT",
+                                function=enclosing,
+                                line=line,
+                            ))
+                    # Don't set url_or_path — we already appended directly
+                    continue
+
+                # httpc:request({ path = "/predict", method = "POST" }) pattern
+                elif table_text in http_vars and method_text == "request":
+                    first_arg = args.named_children[0]
+                    if first_arg.type == "table_constructor":
+                        req_path = None
+                        req_method = "unknown"
+                        for field_node in first_arg.named_children:
+                            if field_node.type == "field":
+                                fname = field_node.child_by_field_name("name")
+                                fval = field_node.child_by_field_name("value")
+                                if fname and fval:
+                                    fname_text = _text(fname, source)
+                                    if fname_text == "path" and fval.type == "string":
+                                        req_path = _get_string_value(fval, source)
+                                    elif fname_text == "method" and fval.type == "string":
+                                        req_method = _get_string_value(fval, source)
+                        if req_path:
+                            url_or_path = req_path
+                            method = req_method
+
         # ngx.location.capture(path) — already tracked as redirect, but also as HTTP
         elif callee_text == "ngx.location.capture":
             first_arg = args.named_children[0]
@@ -1011,6 +1048,130 @@ def _extract_http_calls_lua(root, source: bytes, ast: FileAST, binding_map: dict
                 function=enclosing,
                 line=line,
             ))
+
+
+# ---------------------------------------------------------------------------
+# File-based IPC detection
+# ---------------------------------------------------------------------------
+
+_IPC_DIRECTORIES = {"/tmp/pinpoint_missions/", "/tmp/ipc/", "/tmp/missions/"}
+
+
+def _extract_ipc_calls(root, source: bytes, ast: FileAST):
+    """Extract file-based IPC patterns (io.open to known IPC directories).
+
+    Detects patterns like:
+        local file = io.open("/tmp/pinpoint_missions/" .. name .. ".json", "w")
+        local mission_file = "/tmp/pinpoint_missions/" .. x; io.open(mission_file, "w")
+    Creates HttpCallRef with method="FILE_IPC" for write-mode opens to IPC dirs.
+    """
+    # First, build a map of local variable → leftmost string prefix from assignments
+    # to handle: local mission_file = "/tmp/pinpoint_missions/" .. x
+    var_path_prefixes: dict[str, str] = {}
+    for decl in _walk_all(root, "variable_declaration"):
+        assign = _first_child_of_type(decl, "assignment_statement")
+        if not assign:
+            continue
+        vl = _first_child_of_type(assign, "variable_list")
+        el = _first_child_of_type(assign, "expression_list")
+        if not (vl and el and vl.named_child_count > 0 and el.named_child_count > 0):
+            continue
+        var_node = vl.named_children[0]
+        if var_node.type != "identifier":
+            continue
+        rhs = el.named_children[0]
+        prefix = None
+        if rhs.type == "string":
+            prefix = _get_string_value(rhs, source)
+        elif rhs.type == "binary_expression":
+            prefix = _extract_leftmost_string(rhs, source)
+        if prefix:
+            var_path_prefixes[_text(var_node, source)] = prefix
+
+    for call_node in _walk_all(root, "function_call"):
+        name_node = call_node.child_by_field_name("name")
+        if not name_node:
+            continue
+
+        callee_text = _text(name_node, source)
+        if callee_text != "io.open":
+            continue
+
+        args = _first_child_of_type(call_node, "arguments")
+        if not args or args.named_child_count == 0:
+            continue
+
+        first_arg = args.named_children[0]
+        line = call_node.start_point[0] + 1
+        enclosing = _find_enclosing_function(call_node, source)
+
+        # Check for write mode ("w") in second argument
+        is_write = False
+        if args.named_child_count >= 2:
+            second_arg = args.named_children[1]
+            if second_arg.type == "string":
+                mode = _get_string_value(second_arg, source)
+                if "w" in mode:
+                    is_write = True
+
+        if not is_write:
+            continue
+
+        # Extract the file path — may be a string literal, concatenation, or variable
+        file_path_str = None
+        if first_arg.type == "string":
+            file_path_str = _get_string_value(first_arg, source)
+        elif first_arg.type == "binary_expression":
+            # Concatenation: "/tmp/pinpoint_missions/" .. x .. ".json"
+            file_path_str = _extract_leftmost_string(first_arg, source)
+        elif first_arg.type == "identifier":
+            # Variable reference — look up in our prefix map
+            var_name = _text(first_arg, source)
+            file_path_str = var_path_prefixes.get(var_name)
+
+        if not file_path_str:
+            continue
+
+        # Check if the path matches known IPC directories
+        matched_dir = None
+        for ipc_dir in _IPC_DIRECTORIES:
+            if file_path_str.startswith(ipc_dir) or ipc_dir.rstrip("/") in file_path_str:
+                matched_dir = ipc_dir
+                break
+
+        # Also match any /tmp/ path as a potential IPC
+        if not matched_dir and file_path_str.startswith("/tmp/"):
+            parts = file_path_str.split("/")
+            # Build directory path: /tmp/something/
+            if len(parts) >= 4:
+                matched_dir = "/".join(parts[:4]) + "/"
+            else:
+                matched_dir = file_path_str
+
+        if matched_dir:
+            ast.http_calls.append(HttpCallRef(
+                url_or_path=matched_dir,
+                method="FILE_IPC",
+                function=enclosing,
+                line=line,
+            ))
+
+
+def _extract_leftmost_string(node, source: bytes) -> str | None:
+    """Extract the leftmost string from a concatenation chain.
+
+    For: "/tmp/pinpoint_missions/" .. name .. ".json"
+    Returns: "/tmp/pinpoint_missions/"
+    """
+    if node.type == "string":
+        return _get_string_value(node, source)
+    if node.type == "binary_expression":
+        op = node.child_by_field_name("operator")
+        if op and _text(op, source) == "..":
+            left = node.child_by_field_name("left")
+            if left:
+                return _extract_leftmost_string(left, source)
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -1067,5 +1228,15 @@ def parse_lua_file(file_path: str) -> FileAST:
 
     # 11. HTTP client calls
     _extract_http_calls_lua(root, source, ast, binding_map)
+
+    # 12. File-based IPC detection
+    _extract_ipc_calls(root, source, ast)
+
+    # 13. Build qualified names for functions
+    if ast.module_name:
+        for func in ast.functions:
+            if not func.qualified_name:
+                func_base = func.name.split(".")[-1].split(":")[-1]
+                func.qualified_name = f"{ast.module_name}.{func_base}"
 
     return ast

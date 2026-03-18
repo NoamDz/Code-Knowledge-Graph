@@ -314,6 +314,25 @@ def test_js_erb():
 
 # --- Ruby export patterns ---
 
+def test_ruby_nested_modules():
+    """Ruby parser should detect classes in deeply nested modules."""
+    ast = parse_ruby_file(str(RB_FIXTURES / "nested_modules.rb"))
+
+    # Should export full module paths
+    assert "Malware::Generator::Preprocess::Active" in ast.exports, \
+        f"Missing nested class export: {ast.exports}"
+    assert "Malware::Generator::Preprocess::Passive" in ast.exports, \
+        f"Missing nested class export: {ast.exports}"
+
+    # Should export singleton methods with full path
+    assert any("Active.process" in e for e in ast.exports), \
+        f"Missing singleton method export: {ast.exports}"
+    assert any("Active.validate" in e for e in ast.exports), \
+        f"Missing singleton method export: {ast.exports}"
+
+    print(f"  PASS: Ruby nested modules — exports: {ast.exports}")
+
+
 def test_ruby_export_patterns():
     """Ruby parser should export class names, module names, and singleton methods."""
     ast = parse_ruby_file(str(RB_FIXTURES / "export_patterns.rb"))
@@ -374,8 +393,8 @@ def test_nginx_proxy_pass():
 # --- Redis abstraction ---
 
 def test_redis_abstraction():
-    """Redis abstraction resolver should create RedisKeyAccess from redis_helper calls."""
-    # Parse the fixture
+    """Redis abstraction resolver should create RedisKeyAccess from store calls."""
+    # Parse the fixture (now uses store instead of redis_helper)
     ast = parse_lua_file(str(LUA_FIXTURES / "redis_helper_caller.lua"))
 
     # Before resolution, this file has no direct redis accesses
@@ -386,9 +405,11 @@ def test_redis_abstraction():
     all_asts = {ast.file_path: ast}
     resolve_redis_abstractions(all_asts)
 
-    # After resolution, should have redis accesses via abstraction
-    assert len(ast.redis_accesses) >= 5, \
-        f"Expected >= 5 redis accesses via abstraction, got {len(ast.redis_accesses)}: " \
+    # After resolution, should have redis accesses via abstraction:
+    # store.get (read), store.set (write), store.exists (read),
+    # store.hset (write), vector:add (write via store_vector)
+    assert len(ast.redis_accesses) >= 4, \
+        f"Expected >= 4 redis accesses via abstraction, got {len(ast.redis_accesses)}: " \
         f"{[(r.operation, r.access_type) for r in ast.redis_accesses]}"
 
     # Check read/write classification
@@ -397,12 +418,83 @@ def test_redis_abstraction():
     assert len(reads) >= 2, f"Expected >= 2 reads, got {len(reads)}"
     assert len(writes) >= 2, f"Expected >= 2 writes, got {len(writes)}"
 
+    # Check specific operations are detected
+    ops = {r.operation for r in ast.redis_accesses}
+    assert "get" in ops, f"Missing get in operations: {ops}"
+    assert "set" in ops, f"Missing set in operations: {ops}"
+    assert "exists" in ops, f"Missing exists in operations: {ops}"
+    assert "hset" in ops, f"Missing hset in operations: {ops}"
+
     # Keys should indicate abstraction
     assert all("<via " in r.key_name for r in ast.redis_accesses), \
         f"Expected <via ...> in key names"
 
+    # Check that store_vector method (vector:add) is also detected
+    vector_accesses = [r for r in ast.redis_accesses if "store_vector" in r.key_name]
+    assert len(vector_accesses) >= 1, \
+        f"Expected >= 1 store_vector access, got {len(vector_accesses)}: " \
+        f"{[(r.operation, r.access_type) for r in ast.redis_accesses]}"
+
     print(f"  PASS: Redis abstraction — {len(ast.redis_accesses)} accesses "
-          f"({len(reads)} reads, {len(writes)} writes)")
+          f"({len(reads)} reads, {len(writes)} writes), "
+          f"including {len(vector_accesses)} store_vector accesses")
+
+
+# --- IPC / pub-sub / HTTP socket / custom wrappers ---
+
+def test_lua_ipc_detection():
+    """Lua parser should detect file-based IPC and pub/sub patterns."""
+    ast = parse_lua_file(str(LUA_FIXTURES / "ipc_patterns.lua"))
+
+    # Should detect file IPC (io.open to /tmp/pinpoint_missions/)
+    # Should detect HTTP client calls (resty.http connect + request)
+    http_calls = ast.http_calls
+    redis_accesses = ast.redis_accesses
+
+    assert len(http_calls) >= 1, f"Expected HTTP calls, got {http_calls}"
+
+    # Check for FILE_IPC detection
+    ipc_calls = [h for h in http_calls if h.method == "FILE_IPC"]
+    assert len(ipc_calls) >= 1, \
+        f"Expected FILE_IPC calls, got {[(h.url_or_path, h.method) for h in http_calls]}"
+    assert any("/tmp/pinpoint_missions/" in h.url_or_path for h in ipc_calls), \
+        f"Expected /tmp/pinpoint_missions/ in IPC calls: {[(h.url_or_path, h.method) for h in ipc_calls]}"
+
+    # Check for Unix socket connect detection
+    unix_calls = [h for h in http_calls if h.method == "UNIX_CONNECT"]
+    assert len(unix_calls) >= 1, \
+        f"Expected UNIX_CONNECT calls, got {[(h.url_or_path, h.method) for h in http_calls]}"
+    assert any("unix:" in h.url_or_path for h in unix_calls), \
+        f"Expected unix: in socket calls: {[(h.url_or_path, h.method) for h in unix_calls]}"
+
+    # Check for httpc:request({path=..., method=...}) detection
+    request_calls = [h for h in http_calls if h.url_or_path == "/predict"]
+    assert len(request_calls) >= 1, \
+        f"Expected /predict request call, got {[(h.url_or_path, h.method) for h in http_calls]}"
+    assert request_calls[0].method == "POST", \
+        f"Expected POST method for /predict, got {request_calls[0].method}"
+
+    print(f"  PASS: Lua IPC detection — {len(http_calls)} HTTP calls, "
+          f"{len(redis_accesses)} Redis accesses")
+
+
+def test_js_http_wrappers():
+    """JS parser should detect sendRequest() and Net._request() as HTTP calls."""
+    ast = parse_js_file(str(JS_FIXTURES / "http_wrappers.js"))
+
+    assert len(ast.http_calls) >= 2, f"Expected >= 2 HTTP calls, got {len(ast.http_calls)}"
+    urls = {h.url_or_path for h in ast.http_calls}
+    assert "/api/collect" in urls, f"Missing /api/collect: {urls}"
+    assert "/api/assess" in urls, f"Missing /api/assess: {urls}"
+
+    # Check methods are correctly extracted
+    methods_by_url = {h.url_or_path: h.method for h in ast.http_calls}
+    assert methods_by_url.get("/api/collect") == "POST", \
+        f"Expected POST for /api/collect, got {methods_by_url.get('/api/collect')}"
+    assert methods_by_url.get("/api/assess") == "POST", \
+        f"Expected POST for /api/assess, got {methods_by_url.get('/api/assess')}"
+
+    print(f"  PASS: JS HTTP wrappers — {len(ast.http_calls)} calls detected: {urls}")
 
 
 # --- Go parser ---
@@ -468,10 +560,13 @@ def run_all():
         test_js_iife_exports,
         test_js_export_patterns,
         test_js_erb,
+        test_ruby_nested_modules,
         test_ruby_export_patterns,
         test_nginx_proxy_pass,
         test_redis_abstraction,
         test_go_parser,
+        test_lua_ipc_detection,
+        test_js_http_wrappers,
     ]
 
     passed = 0
