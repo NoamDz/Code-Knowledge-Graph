@@ -1,66 +1,66 @@
-(.venv) il021250@Noams-MacBook-Pro Code-Knowledge-Graph % code-graph -c config.yml build
-Building code graph for: /Users/il021250/dev/pinpoint/src
-Scanning 1222 files...
 Parsed 1222 files (0 errors)
   Lua package paths: 29 templates
 Resolving cross-file imports...
 Resolving cross-file calls...
-  Calls: 44658 total, 8885 resolved (19.9%)
+  Calls: 44658 total, 14693 resolved (32.9%)
 Resolving Redis abstraction layers...
   Redis accesses via abstractions: +42 (total: 48)
 Ingesting into Memgraph...
   Ingested 24 nginx locations, 2 proxy_pass, 0 upstreams
-  58781 graph writes
+  66786 graph writes
 
-Build completed in 256.3s
-(.venv) il021250@Noams-MacBook-Pro Code-Knowledge-Graph % python -m pytest graph_builder/tests -v
+Build completed in 113.4s
+(.venv) il021250@Noams-MacBook-Pro Code-Knowledge-Graph % python -m pytest graph_builder/tests/ -v
 =========================================================================================== test session starts ============================================================================================
 platform darwin -- Python 3.10.5, pytest-9.0.2, pluggy-1.6.0 -- /Users/il021250/dev/Code-Knowledge-Graph/.venv/bin/python
 cachedir: .pytest_cache
 rootdir: /Users/il021250/dev/Code-Knowledge-Graph
 configfile: pyproject.toml
 plugins: anyio-4.12.1
-collected 37 items
+collected 40 items
 
 graph_builder/tests/test_all_parsers.py::test_lua_M PASSED                                                                                                                                           [  2%]
 graph_builder/tests/test_all_parsers.py::test_lua_m PASSED                                                                                                                                           [  5%]
-graph_builder/tests/test_all_parsers.py::test_lua_named PASSED                                                                                                                                       [  8%]
+graph_builder/tests/test_all_parsers.py::test_lua_named PASSED                                                                                                                                       [  7%]
 graph_builder/tests/test_all_parsers.py::test_lua_direct_return PASSED                                                                                                                               [ 10%]
-graph_builder/tests/test_all_parsers.py::test_lua_class PASSED                                                                                                                                       [ 13%]
-graph_builder/tests/test_all_parsers.py::test_lua_complex PASSED                                                                                                                                     [ 16%]
-graph_builder/tests/test_all_parsers.py::test_python PASSED                                                                                                                                          [ 18%]
-graph_builder/tests/test_all_parsers.py::test_ruby PASSED                                                                                                                                            [ 21%]
-graph_builder/tests/test_all_parsers.py::test_js PASSED                                                                                                                                              [ 24%]
-graph_builder/tests/test_all_parsers.py::test_go PASSED                                                                                                                                              [ 27%]
-graph_builder/tests/test_all_parsers.py::test_nginx PASSED                                                                                                                                           [ 29%]
-graph_builder/tests/test_all_parsers.py::test_spot_check_tool PASSED                                                                                                                                 [ 32%]
-graph_builder/tests/test_all_parsers.py::test_coverage_report_tool PASSED                                                                                                                            [ 35%]
-graph_builder/tests/test_lua_parser.py::test_module_M PASSED                                                                                                                                         [ 37%]
-graph_builder/tests/test_lua_parser.py::test_module_m PASSED                                                                                                                                         [ 40%]
-graph_builder/tests/test_lua_parser.py::test_module_named PASSED                                                                                                                                     [ 43%]
-graph_builder/tests/test_lua_parser.py::test_module_direct_return PASSED                                                                                                                             [ 45%]
-graph_builder/tests/test_lua_parser.py::test_module_class PASSED                                                                                                                                     [ 48%]
-graph_builder/tests/test_lua_parser.py::test_module_complex PASSED                                                                                                                                   [ 51%]
-graph_builder/tests/test_new_features.py::test_config_lua_package_paths PASSED                                                                                                                       [ 54%]
-graph_builder/tests/test_new_features.py::test_config_defaults PASSED                                                                                                                                [ 56%]
-graph_builder/tests/test_new_features.py::test_nginx_includes PASSED                                                                                                                                 [ 59%]
-graph_builder/tests/test_new_features.py::test_nginx_single_file_unchanged PASSED                                                                                                                    [ 62%]
-graph_builder/tests/test_new_features.py::test_internal_redirects PASSED                                                                                                                             [ 64%]
-graph_builder/tests/test_new_features.py::test_redis_lua PASSED                                                                                                                                      [ 67%]
-graph_builder/tests/test_new_features.py::test_redis_python PASSED                                                                                                                                   [ 70%]
-graph_builder/tests/test_new_features.py::test_http_calls_lua PASSED                                                                                                                                 [ 72%]
-graph_builder/tests/test_new_features.py::test_http_calls_python PASSED                                                                                                                              [ 75%]
-graph_builder/tests/test_new_features.py::test_context_module PASSED                                                                                                                                 [ 78%]
-graph_builder/tests/test_new_features.py::test_python_resolver PASSED                                                                                                                                [ 81%]
-graph_builder/tests/test_new_features.py::test_js_iife_exports PASSED                                                                                                                                [ 83%]
-graph_builder/tests/test_new_features.py::test_js_export_patterns PASSED                                                                                                                             [ 86%]
-graph_builder/tests/test_new_features.py::test_js_erb PASSED                                                                                                                                         [ 89%]
-graph_builder/tests/test_new_features.py::test_ruby_export_patterns PASSED                                                                                                                           [ 91%]
-graph_builder/tests/test_new_features.py::test_nginx_proxy_pass PASSED                                                                                                                               [ 94%]
-graph_builder/tests/test_new_features.py::test_redis_abstraction PASSED                                                                                                                              [ 97%]
+graph_builder/tests/test_all_parsers.py::test_lua_class PASSED                                                                                                                                       [ 12%]
+graph_builder/tests/test_all_parsers.py::test_lua_complex PASSED                                                                                                                                     [ 15%]
+graph_builder/tests/test_all_parsers.py::test_python PASSED                                                                                                                                          [ 17%]
+graph_builder/tests/test_all_parsers.py::test_ruby PASSED                                                                                                                                            [ 20%]
+graph_builder/tests/test_all_parsers.py::test_js PASSED                                                                                                                                              [ 22%]
+graph_builder/tests/test_all_parsers.py::test_go PASSED                                                                                                                                              [ 25%]
+graph_builder/tests/test_all_parsers.py::test_nginx PASSED                                                                                                                                           [ 27%]
+graph_builder/tests/test_all_parsers.py::test_spot_check_tool PASSED                                                                                                                                 [ 30%]
+graph_builder/tests/test_all_parsers.py::test_coverage_report_tool PASSED                                                                                                                            [ 32%]
+graph_builder/tests/test_lua_parser.py::test_module_M PASSED                                                                                                                                         [ 35%]
+graph_builder/tests/test_lua_parser.py::test_module_m PASSED                                                                                                                                         [ 37%]
+graph_builder/tests/test_lua_parser.py::test_module_named PASSED                                                                                                                                     [ 40%]
+graph_builder/tests/test_lua_parser.py::test_module_direct_return PASSED                                                                                                                             [ 42%]
+graph_builder/tests/test_lua_parser.py::test_module_class PASSED                                                                                                                                     [ 45%]
+graph_builder/tests/test_lua_parser.py::test_module_complex PASSED                                                                                                                                   [ 47%]
+graph_builder/tests/test_new_features.py::test_config_lua_package_paths PASSED                                                                                                                       [ 50%]
+graph_builder/tests/test_new_features.py::test_config_defaults PASSED                                                                                                                                [ 52%]
+graph_builder/tests/test_new_features.py::test_nginx_includes PASSED                                                                                                                                 [ 55%]
+graph_builder/tests/test_new_features.py::test_nginx_single_file_unchanged PASSED                                                                                                                    [ 57%]
+graph_builder/tests/test_new_features.py::test_internal_redirects PASSED                                                                                                                             [ 60%]
+graph_builder/tests/test_new_features.py::test_redis_lua PASSED                                                                                                                                      [ 62%]
+graph_builder/tests/test_new_features.py::test_redis_python PASSED                                                                                                                                   [ 65%]
+graph_builder/tests/test_new_features.py::test_http_calls_lua PASSED                                                                                                                                 [ 67%]
+graph_builder/tests/test_new_features.py::test_http_calls_python PASSED                                                                                                                              [ 70%]
+graph_builder/tests/test_new_features.py::test_context_module PASSED                                                                                                                                 [ 72%]
+graph_builder/tests/test_new_features.py::test_python_resolver PASSED                                                                                                                                [ 75%]
+graph_builder/tests/test_new_features.py::test_js_iife_exports PASSED                                                                                                                                [ 77%]
+graph_builder/tests/test_new_features.py::test_js_export_patterns PASSED                                                                                                                             [ 80%]
+graph_builder/tests/test_new_features.py::test_js_erb PASSED                                                                                                                                         [ 82%]
+graph_builder/tests/test_new_features.py::test_ruby_nested_modules PASSED                                                                                                                            [ 85%]
+graph_builder/tests/test_new_features.py::test_ruby_export_patterns PASSED                                                                                                                           [ 87%]
+graph_builder/tests/test_new_features.py::test_nginx_proxy_pass PASSED                                                                                                                               [ 90%]
+graph_builder/tests/test_new_features.py::test_redis_abstraction PASSED                                                                                                                              [ 92%]
+graph_builder/tests/test_new_features.py::test_lua_ipc_detection PASSED                                                                                                                              [ 95%]
+graph_builder/tests/test_new_features.py::test_js_http_wrappers PASSED                                                                                                                               [ 97%]
 graph_builder/tests/test_new_features.py::test_go_parser PASSED                                                                                                                                      [100%]
 
-============================================================================================ 37 passed in 0.50s ============================================================================================
+============================================================================================ 40 passed in 0.80s ============================================================================================
 (.venv) il021250@Noams-MacBook-Pro Code-Knowledge-Graph % code-graph -c config.yml validate
 
 ============================================================
@@ -103,7 +103,7 @@ graph_builder/tests/test_new_features.py::test_go_parser PASSED                 
     resty.sha256 (from mysql.lua)
 
 --- EXPORTS ---
-  Total exports:     7151
+  Total exports:     7197
   Files with exports:    1053
   Files without exports: 169
     lua: 754 / 808 (93.3%)
@@ -174,4 +174,4 @@ graph_builder/tests/test_new_features.py::test_go_parser PASSED                 
   ⚠ Dynamic require at line 67: require("common.orm_models."..k)
   ... and 13 more
 
-  Report generated in 12.56s
+  Report generated in 25.40s
