@@ -1,357 +1,129 @@
-(.venv) il021250@Noams-MacBook-Pro Code-Knowledge-Graph % code-graph spot-check /Users/il021250/dev/pinpoint/src/common/base/lua/controller.lua
+(.venv) il021250@Noams-MacBook-Pro Code-Knowledge-Graph % code-graph -c config.yml build
+Building code graph for: /Users/il021250/dev/pinpoint/src
+Scanning 1222 files...
+Parsed 1222 files (0 errors)
+  Lua package paths: 29 templates
+Resolving cross-file imports...
+Resolving cross-file calls...
+  Calls: 44658 total, 14693 resolved (32.9%)
+Resolving Redis abstraction layers...
+  Redis accesses via abstractions: +123 (total: 129)
+Ingesting into Memgraph...
+  Ingested 24 nginx locations, 2 proxy_pass, 0 upstreams
+  66867 graph writes
+
+Build completed in 96.1s
+(.venv) il021250@Noams-MacBook-Pro Code-Knowledge-Graph % code-graph -c config.yml validate
+
 ============================================================
-Spot Check: /Users/il021250/dev/pinpoint/src/common/base/lua/controller.lua
+  Graph Coverage Report
+  Repository: /Users/il021250/dev/pinpoint/src
 ============================================================
 
-SOURCE: 426 lines, language: lua
+  Total source files found: 1222
 
-MODULE PATTERN: M
-  Table variable: M
-  Returns: M
+--- FILES ---
+   lua:  808 /  808 parsed (100.0%)  [errors: 0]
+    py:   96 /   96 parsed (100.0%)  [errors: 0]
+    rb:  151 /  151 parsed (100.0%)  [errors: 0]
+    js:   94 /   94 parsed (100.0%)  [errors: 0]
+    go:   73 /   73 parsed (100.0%)  [errors: 0]
 
-FUNCTIONS (14):
-  ✓ M.new(component, collectors, handlers, logger, extra_actions)  lines 67-85  vis=public
-  ✓ M.handle_multi_login(bundle, store, header_content)  lines 87-103  vis=public
-  ✓ M.serve_static_file(web, filename, bundle)  lines 105-123  vis=public
-  ✓ M.get_action_name(web)  lines 125-128  vis=public
-  ✓ M.get_request_method(web)  lines 130-135  vis=public
-  ✓ M.get_features_from_request(web, bundle, component, action)  lines 137-205  vis=public
-  ✓ M:get_action(web)  lines 210-230  vis=public [method]
-  ○ copy_overridable_response_headers(web, response_headers)  lines 233-243  vis=local
-  ✓ M:empty(runtime)  lines 246-257  vis=public [method]
-  ○ decrypt_post_data(web)  lines 259-262  vis=local
-  ○ decrypt_mobile_sdk_payload(runtime)  lines 264-289  vis=local
-  ✓ M:invoke(runtime)  lines 291-382  vis=public [method]
-  ✓ M:invoke_error(runtime, error)  lines 384-388  vis=public [method]
-  ✓ M:main(wsapi_env)  lines 392-421  vis=public [method]
+--- ENTITIES ---
+  Functions:      7675 (5555 public)
+  Classes:         330
+    lua: 4926 functions (3090 public), 0 classes
+    py: 384 functions (373 public), 98 classes
+    rb: 807 functions (713 public), 91 classes
+    js: 900 functions (900 public), 0 classes
+    go: 658 functions (479 public), 141 classes
 
-EXPORTS (12): get_features_from_request, invoke_error, get_action_name, main, empty, invoke, get_request_method, __index, get_action, serve_static_file, handle_multi_login, new
+--- IMPORTS ---
+  Total import refs:  4427
+  Dynamic imports:    28
+  Likely resolved:    3425 / 4399
+  Likely internal but unresolved: 10
+    resty.lock (from monitor.lua)
+    resty.lock (from mysql_fallback_timer.lua)
+    resty.lock (from redis_dns_timer.lua)
+    resty.iputils (from cloudfront_ips.lua)
+    resty.lock (from async_timer.lua)
+    resty.redis (from redis_helper.lua)
+    resty.http (from socket.lua)
+    resty.dns.resolver (from socket.lua)
+    resty.redis (from rediscluster.lua)
+    resty.sha256 (from mysql.lua)
 
-IMPORTS (27):
-  require: "config" as Config  (line 12)
-  require: "lib.lua.redis_helper" as redis_helper  (line 13)
-  require: "bundles.lua" as Bundles  (line 14)
-  require: "wsapi.util" as WSAPIUtil  (line 16)
-  require: "cjson" as CJSON  (line 17)
-  require: "lib.lua.wsapi_helpers" as WSAPIHelpers  (line 19)
-  require: "common.helpers.app" as AppHelper  (line 20)
-  require: "ato.helpers.common" as CommonHelpers  (line 21)
-  require: "utils.lua.cache_helper" as cache_helper  (line 22)
-  require: "lib.lua.string_utils" as StringUtils  (line 23)
-  require: "common.base.lua.hooks" as Hooks  (line 24)
-  require: "common.base.lua.director" as BaseDirector  (line 25)
-  require: "common.base.lua.adapter" as BaseAdapter  (line 26)
-  require: "common.base.lua.handler" as BaseHandler  (line 27)
-  require: "common.base.lua.actions" as BaseActions  (line 28)
-  require: "common.collectors.source_ports" as SourcePortsCollector  (line 29)
-  require: "common.base.lua.store" as Store  (line 30)
-  require: "lib.lua.db_connection_pool" as DB  (line 31)
-  require: "lib.lua.crypto" as crypto  (line 32)
-  require: "rapport_blob_crypto" as blob_crypto  (line 33)
-  require: "lib.lua.logger" as Logger  (line 34)
-  require: "common.base.lua.finalize_response" as finalize_response  (line 35)
-  require: "common.helpers.handlers_counter" as handlers_counter_helper  (line 36)
-  require: "utils.lua.request_timer" as request_timer  (line 37)
-  require: "triggers" as triggers  (line 38)
-  require: "router.helpers" as rhelpers  (line 118)
-  require: "format("%s.collectors",component)" [DYNAMIC]  (line 141)
+--- EXPORTS ---
+  Total exports:     7197
+  Files with exports:    1053
+  Files without exports: 169
+    lua: 754 / 808 (93.3%)
+    py: 79 / 96 (82.3%)
+    rb: 82 / 151 (54.3%)
+      ⚠ LOW: Consider auditing rb parser export detection
+    js: 69 / 94 (73.4%)
+      ⚠ LOW: Consider auditing js parser export detection
+    go: 69 / 73 (94.5%)
 
-CALLS (108):
-  <module> → cache_helper.get_cache_config → utils.lua.cache_helper.get_cache_config  (line 56)
-  M.new → setmetatable  (line 69)
-  M.new → BaseDirector.new → common.base.lua.director.new  (line 75)
-  M.new → pairs  (line 79)
-  M.handle_multi_login → header_content:gsub  (line 90)
-  M.handle_multi_login → StringUtils.split → lib.lua.string_utils.split  (line 91)
-  M.handle_multi_login → store.assess_vector:set  (line 96)
-  M.handle_multi_login → bundle:enable_multi_login_isolation  (line 98)
-  M.handle_multi_login → bundle:get  (line 99)
-  M.handle_multi_login → store.assess_vector:set  (line 100)
-  M.serve_static_file → cache_helper.get → utils.lua.cache_helper.get  (line 109)
-  M.serve_static_file → redis_helper:hget → lib.lua.redis_helper.hget  (line 112)
-  M.serve_static_file → rhelpers.encode_session_info → router.helpers.encode_session_info  (line 119)
-  M.serve_static_file → string.gsub  (line 120)
-  M.get_action_name → string.find  (line 126)
-  M.get_features_from_request → format  (line 141)
-  M.get_features_from_request → M.get_request_method  (line 154)
-  M.get_features_from_request → base64.decode  (line 156)
-  M.get_features_from_request → bundle:get  (line 157)
-  M.get_features_from_request → crypto.rc4.rc4 → lib.lua.crypto.rc4.rc4  (line 159)
-  M.get_features_from_request → WSAPIUtil.url_decode → wsapi.util.url_decode  (line 161)
-  M.get_features_from_request → CJSON.decode [pcall] → cjson.decode  (line 162)
-  M.get_features_from_request → ipairs  (line 163)
-  M.get_features_from_request → pairs  (line 167)
-  M.get_features_from_request → CJSON.decode → cjson.decode  (line 181)
-  M.get_features_from_request → type  (line 182)
-  M.get_features_from_request → pairs  (line 183)
-  M.get_features_from_request → string.match  (line 188)
-  M.get_features_from_request → bundle:get  (line 189)
-  M.get_features_from_request → string.sub  (line 190)
-  M:get_action → assert  (line 211)
-  M:get_action → self.get_action_name  (line 212)
-  M:get_action → assert  (line 213)
-  M:get_action → assert  (line 228)
-  M:get_action → format  (line 228)
-  copy_overridable_response_headers → ipairs  (line 238)
-  M:empty → BaseHandler.parse_api_version_data → common.base.lua.handler.parse_api_version_data  (line 250)
-  M:empty → CommonHelpers.is_new_api → ato.helpers.common.is_new_api  (line 251)
-  M:empty → copy_overridable_response_headers  (line 255)
-  M:empty → coroutine.wrap  (line 256)
-  M:empty → coroutine.yield  (line 256)
-  decrypt_post_data → blob_crypto.decrypt → rapport_blob_crypto.decrypt  (line 261)
-  decrypt_mobile_sdk_payload → request_timer.start → utils.lua.request_timer.start  (line 266)
-  decrypt_mobile_sdk_payload → decrypt_post_data [pcall]  (line 268)
-  decrypt_mobile_sdk_payload → request_timer.stop → utils.lua.request_timer.stop  (line 270)
-  decrypt_mobile_sdk_payload → handlers_counter_helper.set_failure_headers → common.helpers.handlers_counter.set_failure_headers  (line 284)
-  decrypt_mobile_sdk_payload → error  (line 286)
-  decrypt_mobile_sdk_payload → format  (line 286)
-  M:invoke → self.get_action_name  (line 292)
-  M:invoke → Store.cache_stores_start → common.base.lua.store.cache_stores_start  (line 293)
-  M:invoke → request_timer.start → utils.lua.request_timer.start  (line 294)
-  M:invoke → WSAPIHelpers.make_web_object → lib.lua.wsapi_helpers.make_web_object  (line 296)
-  M:invoke → AppHelper.get_bundle → common.helpers.app.get_bundle  (line 299)
-  M:invoke → error  (line 302)
-  M:invoke → CJSON.encode → cjson.encode  (line 302)
-  M:invoke → AppHelper.get_bundle_params → common.helpers.app.get_bundle_params  (line 302)
-  M:invoke → request_timer.add_metadata → utils.lua.request_timer.add_metadata  (line 305)
-  M:invoke → request_timer.add_metadata → utils.lua.request_timer.add_metadata  (line 306)
-  M:invoke → request_timer.add_metadata → utils.lua.request_timer.add_metadata  (line 307)
-  M:invoke → runtime.web.store:begin_transaction  (line 308)
-  M:invoke → AppHelper.get_input_channel → common.helpers.app.get_input_channel  (line 310)
-  M:invoke → AppHelper.count_session_once → common.helpers.app.count_session_once  (line 311)
-  M:invoke → runtime.bundle:get  (line 315)
-  M:invoke → AppHelper.get_from_header → common.helpers.app.get_from_header  (line 316)
-  M:invoke → AppHelper.get_from_header → common.helpers.app.get_from_header  (line 317)
-  M:invoke → SourcePortsCollector:collect → common.collectors.source_ports.collect  (line 318)
-  M:invoke → runtime.bundle:get  (line 326)
-  M:invoke → runtime.web.store.assess_vector:set  (line 329)
-  M:invoke → M.handle_multi_login  (line 334)
-  M:invoke → runtime.bundle:get  (line 335)
-  M:invoke → runtime.web.store.assess_vector:set  (line 336)
-  M:invoke → decrypt_mobile_sdk_payload  (line 342)
-  M:invoke → DB.set_current_db → lib.lua.db_connection_pool.set_current_db  (line 344)
-  M:invoke → BaseAdapter.get_request_adapters → common.base.lua.adapter.get_request_adapters  (line 346)
-  M:invoke → ipairs  (line 347)
-  M:invoke → adapter:process_request  (line 348)
-  M:invoke → Hooks.execute → common.base.lua.hooks.execute  (line 351)
-  M:invoke → self:get_action  (line 353)
-  M:invoke → request_timer.stop → utils.lua.request_timer.stop  (line 355)
-  M:invoke → request_timer.start → utils.lua.request_timer.start  (line 357)
-  M:invoke → action  (line 358)
-  M:invoke → request_timer.stop → utils.lua.request_timer.stop  (line 359)
-  M:invoke → request_timer.start → utils.lua.request_timer.start  (line 361)
-  M:invoke → Hooks.execute → common.base.lua.hooks.execute  (line 363)
-  M:invoke → triggers.send_pending → triggers.send_pending  (line 366)
-  M:invoke → AppHelper.get_bundle_key → common.helpers.app.get_bundle_key  (line 366)
-  M:invoke → ipairs  (line 372)
-  M:invoke → adapter:process_response  (line 373)
-  M:invoke → runtime.res:write  (line 377)
-  M:invoke → finalize_response.finalize → common.base.lua.finalize_response.finalize  (line 377)
-  M:invoke → runtime.res:content_type  (line 378)
-  M:invoke → runtime.web.store:commit_transaction  (line 379)
-  M:invoke → Store.cache_stores_commit → common.base.lua.store.cache_stores_commit  (line 380)
-  M:invoke → request_timer.stop → utils.lua.request_timer.stop  (line 381)
-  M:invoke_error → debug.traceback  (line 385)
-  M:main → request_timer.start → utils.lua.request_timer.start  (line 404)
-  M:main → function() self:invoke(runtime) end [pcall]  (line 406)
-  M:main → self:invoke  (line 406)
-  M:main → self:invoke_error  (line 406)
-  M:main → request_timer.stop → utils.lua.request_timer.stop  (line 408)
-  M:main → request_timer.flush → utils.lua.request_timer.flush  (line 409)
-  M:main → runtime.res:finish  (line 412)
-  M:main → StringUtils.split → lib.lua.string_utils.split  (line 414)
-  M:main → ipairs  (line 415)
-  M:main → self.logger.debug  (line 416)
-  M:main → line:gsub  (line 416)
-  M:main → Logger.log_standard_error → lib.lua.logger.log_standard_error  (line 418)
-  M:main → self:empty  (line 419)
+--- CALLS ---
+  Total calls:         44658
+  Resolved to module:  6856 (15.4%)
+  pcall-wrapped:       255
+  Calls per function:  5.8
 
-WARNINGS (1):
+--- OPENRESTY ---
+  ngx.ctx accesses:     296
+  ngx.shared accesses:  41
+  Internal redirects:   0
+
+--- CROSS-SERVICE ---
+  Redis key accesses:   129
+    (direct: 6, via abstractions: +123)
+    lua: 129
+  HTTP client calls:    4
+    py: 1
+    go: 3
+
+--- LUA MODULE PATTERNS ---
+                     M: 581
+                 named: 185
+           side_effect: 17
+                direct: 14
+               unknown: 8
+                    _M: 3
+
+--- NGINX CONFIG ---
+  lua_package_path entries: 24
+  Shared dicts: 26
+  Locations: 24
+  Global Lua phases: 4
+  Location Lua phases: 13
+  Include files: 8
+  Upstreams: 0
+  Proxy_pass locations: 2
+
+--- WARNINGS (33) ---
+  ⚠ Dynamic require at line 10: require(string.format("tasks.%s", task_name))
+  ⚠ Dynamic require at line 143: require(current.path)
+  ⚠ Dynamic require at line 64: require(path)
+  ⚠ Dynamic require at line 2: require(string.format("deferrer.%s.client", config.DEFERRER_ENGINE))
+  ⚠ Dynamic require at line 10: require(string.format("common.tasks.%s", task_name))
+  ⚠ Dynamic require at line 8: require(string.format("common.rules_engine.stages.%s", name))
+  ⚠ Dynamic require at line 15: require(format("common.rules_engine.api.types.%s", type_name))
+  ⚠ Dynamic require at line 16: require(format("common.rules_engine.api.methods.%s", container_name))
+  ⚠ Dynamic require at line 76: require(format("common.rules_engine.compiler.methods.%s", container_name))
+  ⚠ Dynamic require at line 33: require(format("common.rules_engine.compiler.table_definitions.%s", container_name))
+  ⚠ Dynamic require at line 18: require(string.format("common.actors.%s", name))
+  ⚠ Dynamic require at line 22: require(string.format("common.rules_engine.actions.%s", name))
+  ⚠ Dynamic require at line 68: require(mod_name)
   ⚠ Dynamic require at line 141: require(format("%s.collectors",component))
+  ⚠ Dynamic require at line 34: require(format("%s.actors", component))
+  ⚠ Dynamic require at line 35: require(format("%s.assessors", component))
+  ⚠ Dynamic require at line 5: require(yaml_package)
+  ⚠ Dynamic require at line 38: require("ato.models." .. (use_cassandra and "c_" or "") .. "remote_access_tool_data")
+  ⚠ Dynamic require at line 63: require("common.models."..k)
+  ⚠ Dynamic require at line 67: require("common.orm_models."..k)
+  ... and 13 more
 
-(.venv) il021250@Noams-MacBook-Pro Code-Knowledge-Graph % code-graph spot-check /Users/il021250/dev/pinpoint/src/malware/generator/preprocess/active.rb
-============================================================
-Spot Check: /Users/il021250/dev/pinpoint/src/malware/generator/preprocess/active.rb
-============================================================
-
-SOURCE: 213 lines, language: ruby
-
-CLASSES (2):
-  Config  (lines 10-64)
-    methods: initialize, has_prefix, uri_prefix, uri_suffix, add_magic_param, query_params, xframe_file_location
-  IframeConfig  (lines 66-138)
-    methods: initialize, actions, evidences, transformations, max_depth, collect_timeout, trigger_timeout, iframe_body
-
-FUNCTIONS (18):
-  ✓ initialize(malware_conf, security_conf)  lines 11-15  vis=public [method]
-  ✓ has_prefix()  lines 17-19  vis=public [method]
-  ✓ uri_prefix()  lines 21-37  vis=public [method]
-  ✓ uri_suffix()  lines 39-51  vis=public [method]
-  ✓ add_magic_param()  lines 53-55  vis=public [method]
-  ✓ query_params()  lines 57-59  vis=public [method]
-  ✓ xframe_file_location()  lines 61-63  vis=public [method]
-  ✓ initialize(security_conf)  lines 68-70  vis=public [method]
-  ✓ actions()  lines 72-85  vis=public [method]
-  ✓ evidences()  lines 87-95  vis=public [method]
-  ✓ transformations()  lines 97-116  vis=public [method]
-  ✓ max_depth()  lines 118-120  vis=public [method]
-  ✓ collect_timeout()  lines 122-124  vis=public [method]
-  ✓ trigger_timeout()  lines 126-128  vis=public [method]
-  ✓ iframe_body()  lines 130-136  vis=public [method]
-  ✓ MalwareDetection::Active.add_snippets(malware, bundle_builder)  lines 140-155  vis=public [method]
-  ✓ MalwareDetection::Active.add_iframe_file(malware, bundle_builder, iframe_body)  lines 157-162  vis=public [method]
-  ✓ MalwareDetection::Active.get_template(name)  lines 164-166  vis=public [method]
-
-EXPORTS (24): MalwareDetection, MalwareDetection::Active, Active, MalwareDetection::Active.add_snippets, MalwareDetection::Active.add_iframe_file, MalwareDetection::Active.get_template, MalwareDetection::Active::Config, MalwareDetection::Active::IframeConfig, initialize, has_prefix, uri_prefix, uri_suffix, add_magic_param, query_params, xframe_file_location, actions, evidences, transformations, max_depth, collect_timeout, trigger_timeout, iframe_body, Config, IframeConfig
-
-IMPORTS (0):
-
-CALLS (50):
-  Config#initialize → uri_prefix.empty?  (line 14)
-  Config#uri_prefix → @security_conf["malware"].each  (line 23)
-  Config#uri_prefix → uri_prefixes.join  (line 26)
-  Config#uri_suffix → @security_conf["malware"].each  (line 41)
-  Config#uri_suffix → uri_suffixes.join  (line 44)
-  IframeConfig#actions → @security_conf["malware"].each  (line 75)
-  IframeConfig#actions → malware_conf["actions"].each  (line 76)
-  IframeConfig#actions → actions.push  (line 77)
-  IframeConfig#evidences → @security_conf["malware"].each  (line 89)
-  IframeConfig#evidences → malware_conf["evidences"].each  (line 90)
-  IframeConfig#transformations → source.nil?  (line 102)
-  IframeConfig#transformations → source.each  (line 105)
-  IframeConfig#transformations → transformation["substring"].nil?  (line 107)
-  IframeConfig#transformations → transformation["substring"]["start"].to_i  (line 108)
-  IframeConfig#transformations → transformation["substring"]["length"].to_i  (line 109)
-  IframeConfig#transformations → transformations.push  (line 111)
-  IframeConfig#iframe_body → @security_conf["malware"].each  (line 132)
-  <module> → get_template  (line 143)
-  <module> → snippets.each  (line 146)
-  <module> → snippet["features"].include?  (line 147)
-  <module> → bundle_builder.add_file  (line 149)
-  <module> → get_template  (line 159)
-  <module> → bundle_builder.add_file  (line 161)
-  <module> → File.join  (line 165)
-  run → MalwareDetection::Active.add_snippets  (line 182)
-  run → raise  (line 183)
-  run → bundle_builder.add_assessor  (line 184)
-  run → bundle_builder.add_actor  (line 185)
-  run → bundle_builder.add_actor  (line 186)
-  run → raise  (line 188)
-  run → MalwareDetection::Active::Config.new  (line 189)
-  run → bundle_builder.set  (line 190)
-  run → main_config.uri_prefix  (line 191)
-  run → main_config.uri_suffix  (line 192)
-  run → main_config.query_params  (line 193)
-  run → main_config.add_magic_param  (line 194)
-  run → main_config.has_prefix  (line 195)
-  run → main_config.xframe_file_location  (line 196)
-  run → MalwareDetection::Active::IframeConfig.new  (line 199)
-  run → bundle_builder.set  (line 200)
-  run → iframe_config.actions  (line 201)
-  run → iframe_config.evidences  (line 202)
-  run → iframe_config.max_depth  (line 203)
-  run → iframe_config.transformations  (line 204)
-  run → iframe_config.collect_timeout  (line 205)
-  run → iframe_config.trigger_timeout  (line 206)
-  run → add_collect_actionable_intelligence  (line 207)
-  run → MalwareDetection::Active.add_iframe_file  (line 209)
-  run → iframe_config.iframe_body  (line 209)
-  run → bundle_builder.set  (line 210)
-
-(.venv) il021250@Noams-MacBook-Pro Code-Knowledge-Graph % code-graph spot-check /Users/il021250/dev/pinpoint/src/lib/lua/context.lua
-============================================================
-Spot Check: /Users/il021250/dev/pinpoint/src/lib/lua/context.lua
-============================================================
-
-SOURCE: 223 lines, language: lua
-
-MODULE PATTERN: M
-  Table variable: M
-  Returns: M
-
-FUNCTIONS (18):
-  ✓ M.init()  lines 19-36  vis=public
-  ✓ M.is_initiated()  lines 38-40  vis=public
-  ○ request_sema_end()  lines 42-49  vis=local
-  ✓ M.release_sema()  lines 51-53  vis=public
-  ✓ M.fetch_concurrency_and_queue_counts(offset_wait)  lines 62-74  vis=public
-  ✓ M.request_sema()  lines 76-93  vis=public
-  ✓ M.resource_semaphore_count(subject, secondary_key)  lines 95-106  vis=public
-  ✓ M.pcall_resource_semaphore()  lines 108-110  vis=public
-  ✓ M.resource_semaphore(subject, secondary_key, resource_count, timeout_seconds, callback)  lines 112-147  vis=public
-  ✓ M.can_yield()  lines 157-159  vis=public
-  ✓ M.safe_yield()  lines 161-171  vis=public
-  ✓ M.get_request_id()  lines 173-175  vis=public
-  ✓ M.get(category)  lines 177-180  vis=public
-  ✓ M.clear(category)  lines 182-184  vis=public
-  ✓ M.get_keepalive_timeout(name)  lines 186-190  vis=public
-  ✓ M.get_pool_params(name, extra)  lines 192-205  vis=public
-  ✓ M.register_finalize(callback)  lines 207-213  vis=public
-  ✓ M.__internal_invoke_finalize(callback)  lines 215-221  vis=public
-
-EXPORTS (17): resource_semaphore_count, fetch_concurrency_and_queue_counts, pcall_resource_semaphore, clear, get_pool_params, register_finalize, can_yield, __internal_invoke_finalize, is_initiated, safe_yield, get_keepalive_timeout, release_sema, get, request_sema, get_request_id, init, resource_semaphore
-
-IMPORTS (4):
-  require: "ngx.semaphore" as semaphore  (line 1)
-  require: "config"  (line 23)
-  require: "lib.lua.socket"  (line 32)
-  require: "ato.structured_policy.rules_watcher"  (line 33)
-
-CALLS (53):
-  M.init → semaphore.new → ngx.semaphore.new  (line 27)
-  M.init → print  (line 29)
-  M.init → error  (line 30)
-  request_sema_end → M.get  (line 43)
-  request_sema_end → requests_sema:post  (line 48)
-  M.release_sema → request_sema_end  (line 52)
-  M.fetch_concurrency_and_queue_counts → requests_sema:count  (line 67)
-  M.fetch_concurrency_and_queue_counts → math.max  (line 69)
-  M.fetch_concurrency_and_queue_counts → math.max  (line 71)
-  M.request_sema → M.get  (line 77)
-  M.request_sema → requests_sema:wait  (line 82)
-  M.request_sema → M.register_finalize  (line 85)
-  M.request_sema → print  (line 89)
-  M.request_sema → ngx.exit  (line 90)
-  M.resource_semaphore_count → assert  (line 97)
-  M.resource_semaphore_count → type  (line 97)
-  M.resource_semaphore_count → string.format  (line 98)
-  M.resource_semaphore_count → sema_ref:count  (line 105)
-  M.pcall_resource_semaphore → M.resource_semaphore [pcall]  (line 109)
-  M.resource_semaphore → tonumber  (line 113)
-  M.resource_semaphore → tonumber  (line 114)
-  M.resource_semaphore → assert  (line 116)
-  M.resource_semaphore → type  (line 116)
-  M.resource_semaphore → assert  (line 117)
-  M.resource_semaphore → type  (line 117)
-  M.resource_semaphore → string.format  (line 118)
-  M.resource_semaphore → semaphore.new → ngx.semaphore.new  (line 122)
-  M.resource_semaphore → print  (line 124)
-  M.resource_semaphore → error  (line 125)
-  M.resource_semaphore → sema_ref:wait  (line 131)
-  M.resource_semaphore → callback [pcall]  (line 133)
-  M.resource_semaphore → sema_ref:post  (line 134)
-  M.resource_semaphore → table.remove  (line 135)
-  M.resource_semaphore → print  (line 138)
-  M.resource_semaphore → error  (line 140)
-  M.resource_semaphore → unpack  (line 142)
-  M.resource_semaphore → print  (line 144)
-  M.resource_semaphore → error  (line 145)
-  M.can_yield → ngx.get_phase  (line 158)
-  M.safe_yield → M.can_yield  (line 162)
-  M.safe_yield → socket.gettime  (line 164)
-  M.safe_yield → ngx.sleep  (line 165)
-  M.safe_yield → rules_watcher.add_ms  (line 166)
-  M.safe_yield → socket.gettime  (line 166)
-  M.safe_yield → ngx.sleep  (line 168)
-  M.get_request_id → ngx.get_phase  (line 174)
-  M.get_pool_params → pairs  (line 201)
-  M.register_finalize → type  (line 208)
-  M.register_finalize → M.get  (line 212)
-  M.__internal_invoke_finalize → M.get  (line 216)
-  M.__internal_invoke_finalize → pairs  (line 217)
-  M.__internal_invoke_finalize → cb [pcall]  (line 218)
-  M.__internal_invoke_finalize → M.clear  (line 220)
-
-(.venv) il021250@Noams-MacBook-Pro Code-Knowledge-Graph % echo "MATCH ()-[r:REDIS_READS]->() RETURN count(r) as reads UNION ALL MATCH ()-[r:REDIS_WRITES]->() RETURN count(r) as
-   writes;" | mgconsole
-zsh: command not found: mgconsole
+  Report generated in 15.25s
