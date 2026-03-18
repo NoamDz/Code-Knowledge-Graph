@@ -1,10 +1,13 @@
 """Redis abstraction resolver.
 
 Post-parse pass that recognizes calls to known Redis wrapper modules
-(like redis_helper) and creates RedisKeyAccess entries on the caller's AST.
+(like redis_helper, store, store_vector) and creates RedisKeyAccess entries
+on the caller's AST.
 
 This makes Redis usage visible through abstraction layers:
-  caller.lua → redis_helper:get(key)  →  REDIS_READS edge on caller
+  caller.lua → store:get(key)       →  REDIS_READS edge on caller
+  caller.lua → vector:add(data)     →  REDIS_WRITES edge on caller
+  caller.lua → redis_helper:get(k)  →  REDIS_READS edge on caller
 """
 
 from __future__ import annotations
@@ -12,9 +15,31 @@ from __future__ import annotations
 from graph_builder.parsers.base import FileAST, RedisKeyAccess
 
 
+# Store methods classified as read or write.
+# Used for both "lib.lua.store" and "common.base.lua.store" paths.
+_STORE_READ = {
+    "get", "hget", "hmget", "hgetall", "exists",
+    "smembers", "sismember",
+}
+_STORE_WRITE = {
+    "set", "delete", "expire", "incr", "decr",
+    "hset", "hmset", "hdel",
+    "sadd", "srem",
+    "lock", "unlock",
+    "begin_transaction", "commit_transaction",
+    "cache_stores_start", "cache_stores_commit",
+}
+
+_STORE_VECTOR_READ = {
+    "get", "get_all", "count", "exists",
+}
+_STORE_VECTOR_WRITE = {
+    "add", "set", "delete", "clear",
+    "zadd", "zrem", "zrangebyscore",
+}
+
 # Hardcoded abstraction defaults for known Redis wrapper modules.
 # Keys are module strings (as they appear in require() calls).
-# Values classify each method as "read" or "write".
 REDIS_ABSTRACTION_DEFAULTS: dict[str, dict[str, set[str]]] = {
     "lib.lua.redis_helper": {
         "read": {
@@ -31,46 +56,33 @@ REDIS_ABSTRACTION_DEFAULTS: dict[str, dict[str, set[str]]] = {
             "expire", "exists_and_hsetnx", "exists_and_hincr", "pipeline",
         },
     },
-    "lib.lua.store": {
-        "read": {
-            "get", "hget", "hmget", "hgetall", "exists",
-            "smembers", "sismember",
-        },
-        "write": {
-            "set", "delete", "expire", "incr", "decr",
-            "hset", "hmset", "hdel",
-            "sadd", "srem",
-            "lock", "unlock",
-        },
-    },
-    "lib.lua.store_vector": {
-        "read": {
-            "get", "get_all", "count", "exists",
-        },
-        "write": {
-            "add", "set", "delete", "clear",
-            "zadd", "zrem", "zrangebyscore",
-        },
-    },
+    # Both paths used in different parts of the codebase
+    "lib.lua.store": {"read": _STORE_READ, "write": _STORE_WRITE},
+    "common.base.lua.store": {"read": _STORE_READ, "write": _STORE_WRITE},
+    "lib.lua.store_vector": {"read": _STORE_VECTOR_READ, "write": _STORE_VECTOR_WRITE},
 }
 
-# Factory methods on store that return store_vector instances.
+# Factory methods on store modules that return store_vector instances.
 STORE_VECTOR_FACTORIES: dict[str, set[str]] = {
     "lib.lua.store": {"collect_vector", "assess_vector"},
+    "common.base.lua.store": {"collect_vector", "assess_vector"},
 }
+
+# All store module strings (for prefix matching in chained calls)
+_ALL_STORE_MODULES = {"lib.lua.store", "common.base.lua.store"}
 
 
 def resolve_redis_abstractions(all_asts: dict[str, FileAST],
                                 abstraction_map: dict | None = None):
     """Scan all ASTs for calls to Redis abstraction modules and create RedisKeyAccess entries.
 
-    Args:
-        all_asts: file_path → FileAST for all parsed files.
-        abstraction_map: Optional override for REDIS_ABSTRACTION_DEFAULTS.
+    Handles three patterns:
+    1. Direct: store:get(key), redis_helper:set(key, val)
+    2. Chained: store.assess_vector:set(val) — factory.method:operation
+    3. Deep chain: runtime.web.store:get(key) — nested property access
     """
     abstractions = abstraction_map or REDIS_ABSTRACTION_DEFAULTS
 
-    # Build a lookup: for each AST, check which local bindings map to abstraction modules
     for file_path, ast in all_asts.items():
         # Build binding map: local_var → module_string
         binding_to_module: dict[str, str] = {}
@@ -81,88 +93,134 @@ def resolve_redis_abstractions(all_asts: dict[str, FileAST],
                     if binding:
                         binding_to_module[binding] = imp.module_string
 
-        # Check each call: does it target a known abstraction?
+        already_matched: set[int] = set()
+
+        # --- Pass 1: Direct abstraction calls ---
+        # Matches: store:get, Store.get, redis_helper:hget
         for call in ast.calls:
             callee = call.callee_string
-            # Match patterns like: redis_helper:get, redis_helper.get
             for sep in (":", "."):
                 if sep not in callee:
                     continue
                 parts = callee.split(sep, 1)
                 table_name, method_name = parts[0], parts[1]
 
-                # Look up what module this table_name is bound to
                 module_str = call.resolved_module or binding_to_module.get(table_name)
-                if not module_str:
-                    continue
-
-                # Check if this module is a known Redis abstraction
-                if module_str not in abstractions:
+                if not module_str or module_str not in abstractions:
                     continue
 
                 config = abstractions[module_str]
-                read_methods = config.get("read", set())
-                write_methods = config.get("write", set())
-
-                if method_name in read_methods:
+                if method_name in config.get("read", set()):
                     ast.redis_accesses.append(RedisKeyAccess(
                         key_name=f"<via {module_str}>",
-                        operation=method_name,
-                        access_type="read",
-                        function=call.caller_function,
-                        line=call.line,
+                        operation=method_name, access_type="read",
+                        function=call.caller_function, line=call.line,
                     ))
+                    already_matched.add(call.line)
                     break
-                elif method_name in write_methods:
+                elif method_name in config.get("write", set()):
                     ast.redis_accesses.append(RedisKeyAccess(
                         key_name=f"<via {module_str}>",
-                        operation=method_name,
-                        access_type="write",
-                        function=call.caller_function,
-                        line=call.line,
+                        operation=method_name, access_type="write",
+                        function=call.caller_function, line=call.line,
                     ))
+                    already_matched.add(call.line)
                     break
 
-        # Second pass: detect store_vector instances from factory calls.
-        # When a file imports a store module that has factory methods
-        # (e.g., store.collect_vector()), the return value is a store_vector.
-        # Calls to methods on those variables (e.g., vector:add()) won't be in
-        # the binding_map, so we use a heuristic: if the file imports a module
-        # with known factories AND a call's method name matches a store_vector
-        # method, treat it as a Redis access via store_vector.
-        factories = abstraction_map or STORE_VECTOR_FACTORIES
-        if not abstraction_map:
-            factories = STORE_VECTOR_FACTORIES
+        # --- Pass 2: Chained vector calls ---
+        # Matches: store.assess_vector:set, store.collect_vector:add
+        # Pattern: binding.factory_method:vector_operation
+        # The callee "store.assess_vector:set" splits on ":" as
+        #   table_name="store.assess_vector", method_name="set"
+        # We need to check if the prefix "store" is a store binding
+        # and "assess_vector" is a factory method
+        for call in ast.calls:
+            if call.line in already_matched:
+                continue
+            callee = call.callee_string
 
-        # Determine which factory-owning modules are imported in this file
-        imported_factory_modules: set[str] = set()
-        for binding, mod_str in binding_to_module.items():
-            if mod_str in factories:
-                imported_factory_modules.add(mod_str)
+            # Try splitting on ":" first (method call syntax)
+            if ":" in callee:
+                parts = callee.split(":", 1)
+                chain, method_name = parts[0], parts[1]
 
-        if imported_factory_modules:
-            # Collect variable names assigned from factory calls
-            # (e.g., store.collect_vector -> the callee matches)
-            factory_var_callees: set[str] = set()
-            for mod_str in imported_factory_modules:
-                factory_methods = factories[mod_str]
-                for binding, bound_mod in binding_to_module.items():
-                    if bound_mod == mod_str:
-                        for fm in factory_methods:
-                            factory_var_callees.add(f"{binding}.{fm}")
-                            factory_var_callees.add(f"{binding}:{fm}")
+                # Check if chain contains a store binding as prefix
+                # e.g., "store.assess_vector" → "store" is binding, "assess_vector" is factory
+                # e.g., "runtime.web.store.assess_vector" → look for any binding in the chain
+                if "." in chain:
+                    chain_parts = chain.split(".")
+                    for i, part in enumerate(chain_parts):
+                        mod_str = binding_to_module.get(part)
+                        if not mod_str or mod_str not in _ALL_STORE_MODULES:
+                            continue
+                        # Check if next part is a factory method
+                        remaining = chain_parts[i+1:]
+                        if remaining and remaining[-1] in STORE_VECTOR_FACTORIES.get(mod_str, set()):
+                            # This is a vector operation
+                            if method_name in _STORE_VECTOR_READ:
+                                ast.redis_accesses.append(RedisKeyAccess(
+                                    key_name=f"<via store_vector>",
+                                    operation=method_name, access_type="read",
+                                    function=call.caller_function, line=call.line,
+                                ))
+                                already_matched.add(call.line)
+                                break
+                            elif method_name in _STORE_VECTOR_WRITE:
+                                ast.redis_accesses.append(RedisKeyAccess(
+                                    key_name=f"<via store_vector>",
+                                    operation=method_name, access_type="write",
+                                    function=call.caller_function, line=call.line,
+                                ))
+                                already_matched.add(call.line)
+                                break
 
-            # Build store_vector method lookup
-            sv_config = abstractions.get("lib.lua.store_vector", {})
-            sv_read = sv_config.get("read", set())
-            sv_write = sv_config.get("write", set())
+        # --- Pass 3: Deep chain store calls ---
+        # Matches: runtime.web.store:get, runtime.web.store:begin_transaction
+        # Pattern: any.chain.BINDING:method where BINDING maps to a store module
+        for call in ast.calls:
+            if call.line in already_matched:
+                continue
+            callee = call.callee_string
 
-            # Also collect method names from direct abstraction calls already
-            # matched, so we avoid double-counting
-            already_matched_lines: set[int] = {r.line for r in ast.redis_accesses}
+            if ":" in callee:
+                parts = callee.split(":", 1)
+                chain, method_name = parts[0], parts[1]
 
+                # Check if chain ends with a known store binding
+                if "." in chain:
+                    chain_parts = chain.split(".")
+                    last_part = chain_parts[-1]
+                    # Check if last part matches any binding to a store module
+                    mod_str = binding_to_module.get(last_part)
+                    if mod_str and mod_str in abstractions:
+                        config = abstractions[mod_str]
+                        if method_name in config.get("read", set()):
+                            ast.redis_accesses.append(RedisKeyAccess(
+                                key_name=f"<via {mod_str}>",
+                                operation=method_name, access_type="read",
+                                function=call.caller_function, line=call.line,
+                            ))
+                            already_matched.add(call.line)
+                        elif method_name in config.get("write", set()):
+                            ast.redis_accesses.append(RedisKeyAccess(
+                                key_name=f"<via {mod_str}>",
+                                operation=method_name, access_type="write",
+                                function=call.caller_function, line=call.line,
+                            ))
+                            already_matched.add(call.line)
+
+        # --- Pass 4: Unbound vector variable calls ---
+        # Matches: vector:add, collect_vector:set
+        # Heuristic: if the file imports a store module, any call to
+        # an unbound variable with a store_vector method name is likely Redis
+        has_store_import = any(
+            mod_str in _ALL_STORE_MODULES
+            for mod_str in binding_to_module.values()
+        )
+
+        if has_store_import:
             for call in ast.calls:
-                if call.line in already_matched_lines:
+                if call.line in already_matched:
                     continue
                 callee = call.callee_string
                 for sep in (":", "."):
@@ -171,25 +229,23 @@ def resolve_redis_abstractions(all_asts: dict[str, FileAST],
                     parts = callee.split(sep, 1)
                     var_name, method_name = parts[0], parts[1]
 
-                    # Skip if this var is already in the binding map (handled above)
+                    # Skip if already bound to a module
                     if var_name in binding_to_module:
                         continue
 
-                    if method_name in sv_read:
+                    if method_name in _STORE_VECTOR_READ:
                         ast.redis_accesses.append(RedisKeyAccess(
-                            key_name="<via lib.lua.store_vector>",
-                            operation=method_name,
-                            access_type="read",
-                            function=call.caller_function,
-                            line=call.line,
+                            key_name="<via store_vector>",
+                            operation=method_name, access_type="read",
+                            function=call.caller_function, line=call.line,
                         ))
+                        already_matched.add(call.line)
                         break
-                    elif method_name in sv_write:
+                    elif method_name in _STORE_VECTOR_WRITE:
                         ast.redis_accesses.append(RedisKeyAccess(
-                            key_name="<via lib.lua.store_vector>",
-                            operation=method_name,
-                            access_type="write",
-                            function=call.caller_function,
-                            line=call.line,
+                            key_name="<via store_vector>",
+                            operation=method_name, access_type="write",
+                            function=call.caller_function, line=call.line,
                         ))
+                        already_matched.add(call.line)
                         break
