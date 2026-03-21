@@ -37,7 +37,7 @@ PARSERS = {
 }
 
 # Which languages have dedicated resolvers
-RESOLVER_LANGUAGES = {"lua", "python"}
+RESOLVER_LANGUAGES = {"lua", "python", "go", "javascript", "ruby"}
 
 
 def _parse_all_files(config: Config) -> tuple[dict[str, FileAST], list[tuple[str, str]]]:
@@ -82,26 +82,50 @@ def _build_resolvers(config: Config) -> dict:
     # Python resolver
     resolvers["python"] = PythonResolver(config.repo_root)
 
+    # Go resolver
+    from graph_builder.resolvers.go_resolver import GoResolver
+    resolvers["go"] = GoResolver(config.repo_root)
+
+    # JS resolver
+    from graph_builder.resolvers.js_resolver import JsResolver
+    resolvers["js"] = JsResolver(config.repo_root)
+
+    # Ruby resolver
+    from graph_builder.resolvers.ruby_resolver import RubyResolver
+    resolvers["ruby"] = RubyResolver(config.repo_root)
+
     return resolvers
 
 
 def _resolve_imports(all_asts: dict[str, FileAST], resolvers: dict) -> dict[str, dict[str, str | None]]:
     """Resolve imports across all files. Returns file_path -> {module_string -> resolved_path}."""
-    lua_resolver = resolvers.get("lua")
-    python_resolver = resolvers.get("python")
     resolved_imports: dict[str, dict[str, str | None]] = {}
+
+    # Map language names to resolver keys
+    lang_to_resolver = {
+        "lua": "lua",
+        "python": "python",
+        "go": "go",
+        "javascript": "js",
+        "ruby": "ruby",
+    }
 
     for file_path, ast in all_asts.items():
         file_resolved: dict[str, str | None] = {}
         for imp in ast.imports:
             if imp.is_dynamic:
                 continue
-            if ast.language == "lua" and lua_resolver:
-                file_resolved[imp.module_string] = lua_resolver.resolve(imp.module_string)
-            elif ast.language == "python" and python_resolver:
-                file_resolved[imp.module_string] = python_resolver.resolve(
-                    imp.module_string, file_path,
-                )
+            resolver_key = lang_to_resolver.get(ast.language)
+            resolver = resolvers.get(resolver_key) if resolver_key else None
+            if resolver:
+                if ast.language == "ruby":
+                    file_resolved[imp.module_string] = resolver.resolve(
+                        imp.module_string, file_path, import_type=imp.import_type,
+                    )
+                else:
+                    file_resolved[imp.module_string] = resolver.resolve(
+                        imp.module_string, file_path,
+                    )
             else:
                 file_resolved[imp.module_string] = None
         resolved_imports[file_path] = file_resolved

@@ -122,6 +122,15 @@ class PythonResolver:
         if module_string in index:
             return index[module_string]
 
+        # Suffix match: find any indexed module that ends with this string.
+        # This handles cases where repo_root includes parent dirs and actual
+        # imports are relative to a sub-package root (e.g., import
+        # "aggregator.models.task" matching "deferrer.aggregator.aggregator.models.task").
+        suffix_dot = f".{module_string}"
+        for indexed_module, file_path in index.items():
+            if indexed_module.endswith(suffix_dot) or indexed_module == module_string:
+                return file_path
+
         # Try as a path
         as_path = module_string.replace(".", "/")
         candidates = [

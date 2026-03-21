@@ -37,20 +37,30 @@ class GoResolver:
             if rel_dir not in self._index:
                 self._index[rel_dir] = dir_path
 
-    def resolve(self, import_path: str) -> str | None:
-        """Resolve a Go import path to a directory path.
+    def resolve(self, import_path: str, from_file: str | None = None) -> str | None:
+        """Resolve a Go import path to a .go file path.
 
         Args:
             import_path: e.g., "github.com/org/repo/internal/auth"
+            from_file: (unused) the file containing the import, for API consistency
 
         Returns:
-            Absolute directory path or None if not found.
+            Absolute path to a representative .go file, or None if not found.
         """
         # Try progressively shorter suffixes of the import path
         parts = import_path.split("/")
         for i in range(len(parts)):
             suffix = "/".join(parts[i:])
             if suffix in self._index:
+                dir_path = Path(self._index[suffix])
+                # Return the first non-test .go file in this directory
+                go_files = sorted(dir_path.glob("*.go"))
+                for gf in go_files:
+                    if not gf.name.endswith("_test.go"):
+                        return str(gf)
+                # If only test files, return the first one
+                if go_files:
+                    return str(go_files[0])
                 return self._index[suffix]
 
         return None

@@ -82,8 +82,12 @@ class LuaResolver:
         module_name = captured.replace("/", ".").replace("\\", ".")
         return module_name
 
-    def resolve(self, module_string: str) -> str | None:
+    def resolve(self, module_string: str, from_file: str | None = None) -> str | None:
         """Resolve a require() string to a file path.
+
+        Args:
+            module_string: The require() string (e.g., "resty.redis")
+            from_file: (unused) the file containing the import, for API consistency
 
         Returns the file path if found in the repo, None if external.
         """

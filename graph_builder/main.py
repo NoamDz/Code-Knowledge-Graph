@@ -107,6 +107,18 @@ def _build_resolvers(config: Config) -> dict:
     from .resolvers.python_resolver import PythonResolver
     resolvers["python"] = PythonResolver(config.repo_root)
 
+    # Go resolver
+    from .resolvers.go_resolver import GoResolver
+    resolvers["go"] = GoResolver(config.repo_root)
+
+    # JS resolver
+    from .resolvers.js_resolver import JsResolver
+    resolvers["js"] = JsResolver(config.repo_root)
+
+    # Ruby resolver
+    from .resolvers.ruby_resolver import RubyResolver
+    resolvers["ruby"] = RubyResolver(config.repo_root)
+
     return resolvers
 
 
@@ -141,22 +153,33 @@ def build(ctx):
 
     # Step 3: Resolve imports
     click.echo("Resolving cross-file imports...")
-    lua_resolver = resolvers.get("lua")
     resolved_imports: dict[str, dict[str, str | None]] = {}
 
-    python_resolver = resolvers.get("python")
+    # Map language names to resolver keys
+    lang_to_resolver = {
+        "lua": "lua",
+        "python": "python",
+        "go": "go",
+        "javascript": "js",
+        "ruby": "ruby",
+    }
 
     for file_path, ast in all_asts.items():
         file_resolved = {}
         for imp in ast.imports:
             if imp.is_dynamic:
                 continue
-            if ast.language == "lua" and lua_resolver:
-                file_resolved[imp.module_string] = lua_resolver.resolve(imp.module_string)
-            elif ast.language == "python" and python_resolver:
-                file_resolved[imp.module_string] = python_resolver.resolve(
-                    imp.module_string, file_path,
-                )
+            resolver_key = lang_to_resolver.get(ast.language)
+            resolver = resolvers.get(resolver_key) if resolver_key else None
+            if resolver:
+                if ast.language == "ruby":
+                    file_resolved[imp.module_string] = resolver.resolve(
+                        imp.module_string, file_path, import_type=imp.import_type,
+                    )
+                else:
+                    file_resolved[imp.module_string] = resolver.resolve(
+                        imp.module_string, file_path,
+                    )
             else:
                 file_resolved[imp.module_string] = None
         resolved_imports[file_path] = file_resolved
