@@ -542,6 +542,42 @@ def test_go_parser():
           f"{len(ast.imports)} imports, {len(ast.http_calls)} HTTP handlers")
 
 
+# --- Metatable inheritance ---
+
+def test_lua_metatable_inheritance():
+    """Lua parser should detect setmetatable-based inheritance from required modules."""
+    ast = parse_lua_file(str(LUA_FIXTURES / "metatable_inheritance.lua"))
+
+    # Should detect metatable parents for global_device, session_device, special_device
+    assert len(ast.metatable_parents) >= 3, \
+        f"Expected >= 3 metatable parents, got {len(ast.metatable_parents)}: {ast.metatable_parents}"
+
+    # global_device inherits from base_model (via {__index = base_model})
+    assert "global_device" in ast.metatable_parents, \
+        f"Missing global_device in metatable_parents: {ast.metatable_parents}"
+    assert ast.metatable_parents["global_device"] == "ato.models.base_model", \
+        f"Expected ato.models.base_model, got {ast.metatable_parents['global_device']}"
+
+    # session_device also inherits from base_model
+    assert "session_device" in ast.metatable_parents, \
+        f"Missing session_device in metatable_parents: {ast.metatable_parents}"
+    assert ast.metatable_parents["session_device"] == "ato.models.base_model", \
+        f"Expected ato.models.base_model, got {ast.metatable_parents['session_device']}"
+
+    # special_device inherits from base_model (direct metatable pattern)
+    assert "special_device" in ast.metatable_parents, \
+        f"Missing special_device in metatable_parents: {ast.metatable_parents}"
+    assert ast.metatable_parents["special_device"] == "ato.models.base_model", \
+        f"Expected ato.models.base_model, got {ast.metatable_parents['special_device']}"
+
+    # standalone should NOT be in metatable_parents (self-referential)
+    assert "standalone" not in ast.metatable_parents, \
+        f"standalone should not be in metatable_parents (self-referential): {ast.metatable_parents}"
+
+    print(f"  PASS: metatable inheritance — {len(ast.metatable_parents)} parents detected: "
+          f"{ast.metatable_parents}")
+
+
 # --- Runner ---
 
 def run_all():
@@ -567,6 +603,7 @@ def run_all():
         test_go_parser,
         test_lua_ipc_detection,
         test_js_http_wrappers,
+        test_lua_metatable_inheritance,
     ]
 
     passed = 0

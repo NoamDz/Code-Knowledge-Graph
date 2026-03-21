@@ -162,6 +162,9 @@ class FileAST:
     redis_accesses: list[RedisKeyAccess] = field(default_factory=list)
     http_calls: list[HttpCallRef] = field(default_factory=list)
 
+    # Metatable inheritance (Lua-specific)
+    metatable_parents: dict[str, str] = field(default_factory=dict)  # child_table → parent_module_string
+
     # Diagnostics
     warnings: list[str] = field(default_factory=list)
 

@@ -68,6 +68,10 @@ class CallResolver:
                 self.class_methods[cls.name] = set(cls.methods)
                 self.class_files[cls.name] = file_path
 
+            # Build class hierarchy from metatable inheritance (Lua OOP)
+            for child_table, parent_module in ast.metatable_parents.items():
+                self.class_hierarchy[child_table] = parent_module
+
             # Build global symbol table
             if not ast.module_name:
                 continue

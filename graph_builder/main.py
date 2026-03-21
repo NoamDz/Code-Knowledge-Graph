@@ -4,6 +4,8 @@ Commands:
     code-graph build           Full graph build
     code-graph update          Incremental update (changed files only)
     code-graph validate        Run validation / coverage report
+    code-graph health          Graph health diagnostic (no Memgraph needed)
+    code-graph export-dot      Export graph as Graphviz DOT (no Memgraph needed)
     code-graph spot-check      Inspect a single file's parse results
     code-graph audit           Run Lua codebase audit
     code-graph schema          Create Memgraph indexes
@@ -31,6 +33,8 @@ from .resolvers.call_resolver import CallResolver
 from .resolvers.redis_abstraction_resolver import resolve_redis_abstractions
 from .validate.spot_check import spot_check
 from .validate.coverage_report import run_coverage_report
+from .validate.graph_health import run_health_report
+from .validate.graph_export_dot import generate_dot
 
 
 PARSERS = {
@@ -403,6 +407,37 @@ def export(ctx, output):
     except Exception as e:
         click.echo(f"Export failed: {e}", err=True)
         sys.exit(1)
+
+
+@cli.command()
+@click.pass_context
+def health(ctx):
+    """Graph health diagnostic: full pipeline analysis without Memgraph."""
+    config = ctx.obj["config"]
+    report = run_health_report(config)
+    click.echo(report)
+
+
+@cli.command("export-dot")
+@click.option("-o", "--output", default="graph.dot", help="Output DOT file path")
+@click.option("--max-nodes", default=200, type=int,
+              help="Maximum number of file nodes to include (default: 200)")
+@click.pass_context
+def export_dot(ctx, output, max_nodes):
+    """Export graph as Graphviz DOT for visualization (no Memgraph needed)."""
+    config = ctx.obj["config"]
+    dot_content = generate_dot(config, max_nodes=max_nodes)
+
+    with open(output, "w") as f:
+        f.write(dot_content)
+
+    # Count nodes and edges for summary
+    node_count = dot_content.count("[label=")
+    edge_count = dot_content.count("->")
+    click.echo(f"Exported DOT graph to {output}")
+    click.echo(f"  ~{node_count} nodes, ~{edge_count} edges")
+    click.echo(f"  Max nodes: {max_nodes}")
+    click.echo(f"  Render: dot -Tpng {output} -o graph.png")
 
 
 if __name__ == "__main__":

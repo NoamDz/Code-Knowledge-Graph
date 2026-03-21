@@ -1175,6 +1175,75 @@ def _extract_leftmost_string(node, source: bytes) -> str | None:
 
 
 # ---------------------------------------------------------------------------
+# Metatable inheritance detection
+# ---------------------------------------------------------------------------
+
+def _extract_metatable_inheritance(root, source: bytes, ast: FileAST, binding_map: dict[str, str]):
+    """Extract metatable-based inheritance patterns.
+
+    Detects:
+        setmetatable(child_table, {__index = parent_table})
+        setmetatable(child_table, parent_table)  -- when parent has __index = self
+
+    If parent_table is in the binding_map (i.e., was require()'d), stores:
+        ast.metatable_parents[child_table_name] = binding_map[parent_table_name]
+    """
+    for call_node in _walk_all(root, "function_call"):
+        name_node = call_node.child_by_field_name("name")
+        if not name_node:
+            continue
+        if _text(name_node, source) != "setmetatable":
+            continue
+
+        args = _first_child_of_type(call_node, "arguments")
+        if not args or args.named_child_count < 2:
+            continue
+
+        first_arg = args.named_children[0]
+        second_arg = args.named_children[1]
+
+        # First arg: child table name (identifier)
+        if first_arg.type != "identifier":
+            continue
+        child_name = _text(first_arg, source)
+
+        # Second arg: either {__index = parent} or parent directly
+        parent_name = None
+
+        if second_arg.type == "table_constructor":
+            # Look for __index = parent_identifier in the table
+            for field_node in second_arg.named_children:
+                if field_node.type == "field":
+                    fname = field_node.child_by_field_name("name")
+                    fval = field_node.child_by_field_name("value")
+                    if fname and fval and _text(fname, source) == "__index":
+                        if fval.type == "identifier":
+                            parent_name = _text(fval, source)
+                        elif fval.type == "dot_index_expression":
+                            # e.g., __index = SomeModule.Base
+                            parent_name = _text(fval, source)
+                        break
+
+        elif second_arg.type == "identifier":
+            # setmetatable(child, parent) — parent table used directly as metatable
+            # This is inheritance when parent.__index = parent was set
+            parent_name = _text(second_arg, source)
+
+        if not parent_name:
+            continue
+
+        # Skip self-referential patterns like setmetatable(t, {__index = t})
+        if parent_name == child_name:
+            continue
+
+        # Resolve parent to module string via binding_map
+        # Handle both direct bindings and dot-notation (parent.field)
+        base_name = parent_name.split(".")[0]
+        if base_name in binding_map:
+            ast.metatable_parents[child_name] = binding_map[base_name]
+
+
+# ---------------------------------------------------------------------------
 # Main entry point
 # ---------------------------------------------------------------------------
 
@@ -1208,31 +1277,34 @@ def parse_lua_file(file_path: str) -> FileAST:
         if ast.module_name:
             func.qualified_name = f"{ast.module_name}.{func_base}"
 
-    # 6. Extract calls
+    # 6. Extract metatable inheritance
+    _extract_metatable_inheritance(root, source, ast, binding_map)
+
+    # 7. Extract calls
     _extract_calls(root, source, ast, binding_map)
 
-    # 7. ngx.ctx accesses (direct + aliased)
+    # 8. ngx.ctx accesses (direct + aliased)
     _extract_ctx_accesses(root, source, ast)
 
-    # 7b. context.get() abstraction accesses
+    # 8b. context.get() abstraction accesses
     _extract_context_module_accesses(root, source, ast, binding_map)
 
-    # 8. ngx.shared accesses
+    # 9. ngx.shared accesses
     _extract_shared_dict_accesses(root, source, ast)
 
-    # 9. Internal redirects (ngx.exec, ngx.location.capture)
+    # 10. Internal redirects (ngx.exec, ngx.location.capture)
     _extract_internal_redirects(root, source, ast)
 
-    # 10. Redis key accesses
+    # 11. Redis key accesses
     _extract_redis_accesses_lua(root, source, ast, binding_map)
 
-    # 11. HTTP client calls
+    # 12. HTTP client calls
     _extract_http_calls_lua(root, source, ast, binding_map)
 
-    # 12. File-based IPC detection
+    # 13. File-based IPC detection
     _extract_ipc_calls(root, source, ast)
 
-    # 13. Build qualified names for functions
+    # 14. Build qualified names for functions
     if ast.module_name:
         for func in ast.functions:
             if not func.qualified_name:

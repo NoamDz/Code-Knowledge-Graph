@@ -93,6 +93,17 @@ def resolve_redis_abstractions(all_asts: dict[str, FileAST],
                     if binding:
                         binding_to_module[binding] = imp.module_string
 
+        # Build case-insensitive binding lookup for property chain matching
+        # e.g., "Store" → "common.base.lua.store" also matches "store" in runtime.web.store
+        binding_lower: dict[str, str] = {
+            k.lower(): v for k, v in binding_to_module.items()
+        }
+
+        # Check if this file imports any store module
+        has_store_import = any(
+            mod_str in _ALL_STORE_MODULES for mod_str in binding_to_module.values()
+        )
+
         already_matched: set[int] = set()
 
         # --- Pass 1: Direct abstraction calls ---
@@ -150,7 +161,13 @@ def resolve_redis_abstractions(all_asts: dict[str, FileAST],
                 if "." in chain:
                     chain_parts = chain.split(".")
                     for i, part in enumerate(chain_parts):
-                        mod_str = binding_to_module.get(part)
+                        # Try exact binding, then case-insensitive
+                        mod_str = binding_to_module.get(part) or binding_lower.get(part.lower())
+                        # Also match by name: "store" in a chain likely IS a store
+                        if not mod_str and has_store_import and part.lower() == "store":
+                            mod_str = next(
+                                (v for v in binding_to_module.values() if v in _ALL_STORE_MODULES), None
+                            )
                         if not mod_str or mod_str not in _ALL_STORE_MODULES:
                             continue
                         # Check if next part is a factory method
@@ -176,7 +193,7 @@ def resolve_redis_abstractions(all_asts: dict[str, FileAST],
 
         # --- Pass 3: Deep chain store calls ---
         # Matches: runtime.web.store:get, runtime.web.store:begin_transaction
-        # Pattern: any.chain.BINDING:method where BINDING maps to a store module
+        # Pattern: any.chain.STORE_NAME:method — match by binding OR by property name "store"
         for call in ast.calls:
             if call.line in already_matched:
                 continue
@@ -186,12 +203,15 @@ def resolve_redis_abstractions(all_asts: dict[str, FileAST],
                 parts = callee.split(":", 1)
                 chain, method_name = parts[0], parts[1]
 
-                # Check if chain ends with a known store binding
                 if "." in chain:
                     chain_parts = chain.split(".")
                     last_part = chain_parts[-1]
-                    # Check if last part matches any binding to a store module
-                    mod_str = binding_to_module.get(last_part)
+                    # Try exact binding, case-insensitive, or name-based "store" match
+                    mod_str = binding_to_module.get(last_part) or binding_lower.get(last_part.lower())
+                    if not mod_str and has_store_import and last_part.lower() == "store":
+                        mod_str = next(
+                            (v for v in binding_to_module.values() if v in _ALL_STORE_MODULES), None
+                        )
                     if mod_str and mod_str in abstractions:
                         config = abstractions[mod_str]
                         if method_name in config.get("read", set()):
@@ -213,11 +233,6 @@ def resolve_redis_abstractions(all_asts: dict[str, FileAST],
         # Matches: vector:add, collect_vector:set
         # Heuristic: if the file imports a store module, any call to
         # an unbound variable with a store_vector method name is likely Redis
-        has_store_import = any(
-            mod_str in _ALL_STORE_MODULES
-            for mod_str in binding_to_module.values()
-        )
-
         if has_store_import:
             for call in ast.calls:
                 if call.line in already_matched:
