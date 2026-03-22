@@ -271,7 +271,7 @@ def run_coverage_report(repo_root: str, nginx_conf: str | None = None,
         lines.append(f"  Builtins:            {class_stats['builtin']}")
         lines.append(f"  External libs:       {class_stats['external']}")
         lines.append(f"  Truly unresolved:    {class_stats['truly_unresolved']}")
-        lines.append(f"  Resolved (skipped):  {class_stats['skipped_resolved']}")
+        lines.append(f"  Resolved (skipped):  {class_stats['already_resolved']}")
         if total_calls:
             effective = resolved_calls + class_stats['builtin'] + class_stats['external']
             lines.append(f"  Effective coverage:  {effective/total_calls*100:.1f}% "
