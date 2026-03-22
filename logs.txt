@@ -1,3 +1,5 @@
+(.venv) il021250@Noams-MacBook-Pro Code-Knowledge-Graph % code-graph -c config.yml health
+
 ======================================================================
   GRAPH HEALTH DIAGNOSTIC
   Repository: /Users/il021250/dev/pinpoint/src
@@ -65,7 +67,7 @@
   Classes:         0
   Export coverage: 765/820 files (93.3%)
   Import resolution: 2899/3222 (90.0%)
-  Call resolution:   9515/28811 (33.0%)
+  Call resolution:   9515/28812 (33.0%)
   Redis accesses:  125
   HTTP calls:      0
   Functions w/ outgoing calls: 4650
@@ -158,8 +160,34 @@
   Total functions: 7819
   Total classes:   330
   Import resolution: 3057/4489 (68.1%)
-  Call resolution:   45348 total, 15041 resolved (33.2%)
+  Call resolution:   45349 total, 15041 resolved (33.2%)
+  Call classification:
+    Builtins:          7556
+    External:          8
+    Truly unresolved:  22744
   Redis accesses:  125 (direct: 0, via abstractions: +125)
   HTTP calls:      4
 
-  Report generated in 46.82s
+  Report generated in 47.14s
+
+(.venv) il021250@Noams-MacBook-Pro Code-Knowledge-Graph % code-graph -c config.yml validate
+Traceback (most recent call last):
+  File "/Users/il021250/dev/Code-Knowledge-Graph/.venv/bin/code-graph", line 8, in <module>
+    sys.exit(cli())
+  File "/Users/il021250/dev/Code-Knowledge-Graph/.venv/lib/python3.10/site-packages/click/core.py", line 1485, in __call__
+    return self.main(*args, **kwargs)
+  File "/Users/il021250/dev/Code-Knowledge-Graph/.venv/lib/python3.10/site-packages/click/core.py", line 1406, in main
+    rv = self.invoke(ctx)
+  File "/Users/il021250/dev/Code-Knowledge-Graph/.venv/lib/python3.10/site-packages/click/core.py", line 1873, in invoke
+    return _process_result(sub_ctx.command.invoke(sub_ctx))
+  File "/Users/il021250/dev/Code-Knowledge-Graph/.venv/lib/python3.10/site-packages/click/core.py", line 1269, in invoke
+    return ctx.invoke(self.callback, **ctx.params)
+  File "/Users/il021250/dev/Code-Knowledge-Graph/.venv/lib/python3.10/site-packages/click/core.py", line 824, in invoke
+    return callback(*args, **kwargs)
+  File "/Users/il021250/dev/Code-Knowledge-Graph/.venv/lib/python3.10/site-packages/click/decorators.py", line 34, in new_func
+    return f(get_current_context(), *args, **kwargs)
+  File "/Users/il021250/dev/Code-Knowledge-Graph/graph_builder/main.py", line 305, in validate
+    report = run_coverage_report(
+  File "/Users/il021250/dev/Code-Knowledge-Graph/graph_builder/validate/coverage_report.py", line 274, in run_coverage_report
+    lines.append(f"  Resolved (skipped):  {class_stats['skipped_resolved']}")
+KeyError: 'skipped_resolved'
