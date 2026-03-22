@@ -975,18 +975,36 @@ In `graph_builder/ingestion/writer.py`, add a method to write cross-language lin
 
 ```python
     def upsert_endpoint_link(self, source_file: str, source_function: str,
-                              endpoint_path: str, target_file: str,
-                              method: str, line: int):
-        """Create a cross-language endpoint link edge."""
+                              endpoint_path: str, method: str, line: int):
+        """Create an HTTP_CALLS edge from a calling function to an Endpoint.
+
+        The Endpoint may already exist (from nginx ingestion with HAS_PHASE->HANDLES->File)
+        or be new (for Go unix socket handlers). Either way, we only create the HTTP_CALLS
+        edge here — the Endpoint->handler linkage is handled by nginx ingestion or
+        upsert_go_socket_endpoint.
+
+        Uses direct _run() execution (not batched) since cross-language links are low-volume.
+        """
         self._run("""
             MERGE (fn:Function {name: $func, file: $src_file})
             MERGE (e:Endpoint {path: $endpoint})
-            MERGE (tf:File {path: $target_file})
             MERGE (fn)-[:HTTP_CALLS {method: $method, line: $line, cross_language: true}]->(e)
-            MERGE (e)-[:SERVES]->(tf)
         """, func=source_function, src_file=source_file,
-             endpoint=endpoint_path, target_file=target_file,
-             method=method, line=line)
+             endpoint=endpoint_path, method=method, line=line)
+
+    def upsert_go_socket_endpoint(self, socket_path: str, handler_path: str,
+                                    go_file: str):
+        """Create an Endpoint for a Go unix socket handler with SERVES edge.
+
+        Go services listen on unix sockets and register HTTP handlers. This creates
+        Endpoint nodes for those handlers and links them to the Go file.
+        """
+        self._run("""
+            MERGE (e:Endpoint {path: $handler_path})
+            SET e.socket = $socket, e.is_go_handler = true
+            MERGE (f:File {path: $go_file})
+            MERGE (e)-[:SERVES]->(f)
+        """, handler_path=handler_path, socket=socket_path, go_file=go_file)
 ```
 
 - [ ] **3.3: Wire endpoint links into ingestion**
@@ -1548,7 +1566,7 @@ After parsing all files, if config is provided, build resolvers and run CallReso
 ```python
     # Optional: run full call resolution if config provided
     if config:
-        resolvers = _build_resolvers_for_validate(all_asts, config)
+        resolvers = _build_resolvers_for_validate(config)
         call_resolver = CallResolver(all_asts, resolvers)
         call_resolver.resolve_all()
         call_stats = call_resolver.stats()
@@ -1558,11 +1576,14 @@ After parsing all files, if config is provided, build resolvers and run CallReso
         class_stats = classifier.stats()
 ```
 
-Add this helper function in `coverage_report.py` (copy structure from `graph_health.py:_build_resolvers`):
+Add this helper function in `coverage_report.py` (mirrors `graph_health.py:_build_resolvers` exactly):
 
 ```python
-def _build_resolvers_for_validate(all_asts, config):
-    """Build language-specific resolvers for call resolution."""
+def _build_resolvers_for_validate(config):
+    """Build language-specific resolvers for call resolution.
+
+    Mirrors graph_health.py:_build_resolvers — resolvers take repo_root, not file lists.
+    """
     from graph_builder.resolvers.lua_resolver import LuaResolver
     from graph_builder.resolvers.python_resolver import PythonResolver
     from graph_builder.resolvers.go_resolver import GoResolver
@@ -1571,23 +1592,25 @@ def _build_resolvers_for_validate(all_asts, config):
 
     resolvers = {}
 
-    lua_files = [fp for fp, ast in all_asts.items() if ast.language == "lua"]
-    py_files = [fp for fp, ast in all_asts.items() if ast.language == "python"]
-    go_files = [fp for fp, ast in all_asts.items() if ast.language == "go"]
-    js_files = [fp for fp, ast in all_asts.items() if ast.language == "javascript"]
-    rb_files = [fp for fp, ast in all_asts.items() if ast.language == "ruby"]
+    # Lua resolver needs package_paths + repo_root
+    package_paths = list(config.lua_package_paths)
+    if config.nginx_conf and Path(config.nginx_conf).exists():
+        try:
+            nginx_config = parse_nginx_conf_recursive(
+                config.nginx_conf, config.nginx_base_path,
+            )
+            for p in nginx_config.lua_package_path:
+                if p not in package_paths:
+                    package_paths.append(p)
+        except Exception:
+            pass
+    resolvers["lua"] = LuaResolver(package_paths, config.repo_root)
 
-    if lua_files:
-        lua_package_paths = getattr(config, "lua_package_paths", None) or []
-        resolvers["lua"] = LuaResolver(lua_files, lua_package_paths)
-    if py_files:
-        resolvers["python"] = PythonResolver(py_files)
-    if go_files:
-        resolvers["go"] = GoResolver(go_files)
-    if js_files:
-        resolvers["js"] = JsResolver(js_files)
-    if rb_files:
-        resolvers["ruby"] = RubyResolver(rb_files)
+    # All other resolvers take repo_root
+    resolvers["python"] = PythonResolver(config.repo_root)
+    resolvers["go"] = GoResolver(config.repo_root)
+    resolvers["js"] = JsResolver(config.repo_root)
+    resolvers["ruby"] = RubyResolver(config.repo_root)
 
     return resolvers
 ```
