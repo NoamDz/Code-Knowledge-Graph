@@ -95,7 +95,8 @@ def scan_files(repo_root: str) -> dict[str, list[str]]:
 
 
 def run_coverage_report(repo_root: str, nginx_conf: str | None = None,
-                        nginx_base_path: str | None = None) -> str:
+                        nginx_base_path: str | None = None,
+                        config=None) -> str:
     """Run the full coverage report and return formatted output."""
     start = time.time()
     root = Path(repo_root)
@@ -164,6 +165,24 @@ def run_coverage_report(repo_root: str, nginx_conf: str | None = None,
                 if fp in all_asts
             )
     redis_after = sum(s.redis_accesses for s in lang_stats.values())
+
+    # --- Optional: full call resolution + classification (when config provided) ---
+    call_stats = None
+    class_stats = None
+    if config:
+        try:
+            resolvers = _build_resolvers_for_validate(config)
+            from graph_builder.resolvers.call_resolver import CallResolver
+            call_resolver = CallResolver(all_asts, resolvers)
+            call_resolver.resolve_all()
+            call_stats = call_resolver.stats()
+
+            from graph_builder.resolvers.builtin_classifier import BuiltinClassifier
+            classifier = BuiltinClassifier()
+            classifier.classify_all(all_asts)
+            class_stats = classifier.stats()
+        except Exception:
+            pass  # Fall back to basic reporting if resolvers unavailable
 
     # --- Format report ---
 
@@ -236,8 +255,27 @@ def run_coverage_report(repo_root: str, nginx_conf: str | None = None,
         1 for ast in all_asts.values() for c in ast.calls if c.resolved_module
     )
     lines.append(f"  Total calls:         {total_calls}")
-    lines.append(f"  Resolved to module:  {resolved_calls} ({resolved_calls/total_calls*100:.1f}%)" if total_calls else "  Total calls: 0")
+    if total_calls:
+        lines.append(f"  Resolved to module:  {resolved_calls} ({resolved_calls/total_calls*100:.1f}%)")
+    else:
+        lines.append(f"  Total calls: 0")
     lines.append(f"  pcall-wrapped:       {total_pcall}")
+
+    if call_stats:
+        lines.append(f"  Call resolution:     {call_stats['resolution_rate']:.1f}% "
+                      f"({call_stats['already_resolved'] + call_stats['newly_resolved']}"
+                      f"/{call_stats['total_calls']})")
+
+    if class_stats:
+        lines.append(f"\n--- CALL CLASSIFICATION ---")
+        lines.append(f"  Builtins:            {class_stats['builtin']}")
+        lines.append(f"  External libs:       {class_stats['external']}")
+        lines.append(f"  Truly unresolved:    {class_stats['truly_unresolved']}")
+        lines.append(f"  Resolved (skipped):  {class_stats['skipped_resolved']}")
+        if total_calls:
+            effective = resolved_calls + class_stats['builtin'] + class_stats['external']
+            lines.append(f"  Effective coverage:  {effective/total_calls*100:.1f}% "
+                          f"(resolved + builtin + external)")
 
     calls_per_func = total_calls / total_funcs if total_funcs else 0
     lines.append(f"  Calls per function:  {calls_per_func:.1f}")
@@ -344,6 +382,42 @@ def _import_likely_internal(mod_string: str, all_asts: dict[str, FileAST]) -> bo
         if as_path in fp:
             return True
     return False
+
+
+def _build_resolvers_for_validate(config):
+    """Build language-specific resolvers for call resolution.
+
+    Mirrors graph_health.py:_build_resolvers — resolvers take repo_root, not file lists.
+    """
+    from graph_builder.resolvers.lua_resolver import LuaResolver
+    from graph_builder.resolvers.python_resolver import PythonResolver
+    from graph_builder.resolvers.go_resolver import GoResolver
+    from graph_builder.resolvers.js_resolver import JsResolver
+    from graph_builder.resolvers.ruby_resolver import RubyResolver
+
+    resolvers = {}
+
+    # Lua resolver needs package_paths + repo_root
+    package_paths = list(config.lua_package_paths)
+    if config.nginx_conf and Path(config.nginx_conf).exists():
+        try:
+            nginx_config = parse_nginx_conf_recursive(
+                config.nginx_conf, config.nginx_base_path,
+            )
+            for p in nginx_config.lua_package_path:
+                if p not in package_paths:
+                    package_paths.append(p)
+        except Exception:
+            pass
+    resolvers["lua"] = LuaResolver(package_paths, config.repo_root)
+
+    # All other resolvers take repo_root
+    resolvers["python"] = PythonResolver(config.repo_root)
+    resolvers["go"] = GoResolver(config.repo_root)
+    resolvers["js"] = JsResolver(config.repo_root)
+    resolvers["ruby"] = RubyResolver(config.repo_root)
+
+    return resolvers
 
 
 def _looks_internal(mod_string: str) -> bool:

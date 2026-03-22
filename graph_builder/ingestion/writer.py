@@ -167,7 +167,7 @@ class GraphWriter:
             UNWIND $batch AS row
             MERGE (a:Function {name: row.from_func, file: row.from_file})
             MERGE (b:Function {name: row.to_func})
-            MERGE (a)-[:CALLS {line: row.line, is_pcall: row.is_pcall}]->(b)
+            MERGE (a)-[:CALLS {line: row.line, is_pcall: row.is_pcall, classification: row.classification}]->(b)
         """,
     }
 
@@ -259,7 +259,8 @@ class GraphWriter:
 
     def upsert_call(self, from_func: str, from_file: str,
                     to_func: str, to_file: str | None = None,
-                    line: int = 0, is_pcall: bool = False):
+                    line: int = 0, is_pcall: bool = False,
+                    classification: str | None = None):
         if to_file:
             self._buffer_edge("CALLS_resolved", {
                 "from_func": from_func,
@@ -276,6 +277,7 @@ class GraphWriter:
                 "to_func": to_func,
                 "line": line,
                 "is_pcall": is_pcall,
+                "classification": classification,
             })
 
     # --- OpenResty-specific (kept as direct _run() — low volume, complex logic) ---
@@ -383,6 +385,17 @@ class GraphWriter:
                 s.type = "upstream"
         """, name=name, servers=servers, socket_path=socket_path)
 
+    def upsert_collector_bundle(self, collector_name, endpoint, js_file, init_file):
+        """Create BUNDLES and SERVES edges for a collector registration."""
+        self._run("""
+            MERGE (init:File {path: $init_file})
+            MERGE (js:File {path: $js_file})
+            MERGE (e:Endpoint {path: $endpoint})
+            MERGE (init)-[:BUNDLES {collector: $collector}]->(js)
+            MERGE (js)-[:SERVES]->(e)
+        """, init_file=init_file, js_file=js_file,
+             endpoint=endpoint, collector=collector_name)
+
     # --- Bulk operations ---
 
     def ingest_file_ast(self, ast: FileAST, resolved_imports: dict[str, str | None] | None = None):
@@ -426,6 +439,7 @@ class GraphWriter:
                 call.caller_function, ast.file_path,
                 to_func, to_file,
                 call.line, call.is_pcall_wrapped,
+                call.classification,
             )
 
         # ngx.ctx accesses
@@ -462,6 +476,26 @@ class GraphWriter:
                 hc.url_or_path, hc.method,
                 hc.function, ast.file_path, hc.line,
             )
+
+    def upsert_endpoint_link(self, source_file: str, source_function: str,
+                             endpoint_path: str, method: str, line: int):
+        """HTTP_CALLS edge from caller to endpoint (cross-language)."""
+        self._run("""
+            MERGE (fn:Function {name: $func, file: $src_file})
+            MERGE (e:Endpoint {path: $endpoint})
+            MERGE (fn)-[:HTTP_CALLS {method: $method, line: $line, cross_language: true}]->(e)
+        """, func=source_function, src_file=source_file,
+             endpoint=endpoint_path, method=method, line=line)
+
+    def upsert_go_socket_endpoint(self, socket_path: str, handler_path: str,
+                                   go_file: str):
+        """Endpoint + SERVES edge for Go unix socket handler."""
+        self._run("""
+            MERGE (e:Endpoint {path: $handler_path})
+            SET e.socket = $socket, e.is_go_handler = true
+            MERGE (f:File {path: $go_file})
+            MERGE (e)-[:SERVES]->(f)
+        """, handler_path=handler_path, socket=socket_path, go_file=go_file)
 
     def clear_file(self, file_path: str):
         """Remove all nodes and edges originating from a file."""

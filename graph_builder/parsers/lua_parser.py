@@ -23,7 +23,7 @@ import tree_sitter_lua as tslua
 from .base import (
     FileAST, FunctionDef, ImportRef, CallRef, ModuleInfo,
     ModulePatternType, ContextAccess, SharedDictAccess,
-    InternalRedirect, RedisKeyAccess, HttpCallRef,
+    InternalRedirect, RedisKeyAccess, HttpCallRef, CollectorInfo,
 )
 
 LUA = Language(tslua.language())
@@ -1244,6 +1244,59 @@ def _extract_metatable_inheritance(root, source: bytes, ast: FileAST, binding_ma
 
 
 # ---------------------------------------------------------------------------
+# Collector registration detection
+# ---------------------------------------------------------------------------
+
+def _detect_collector_registration(root, source: bytes, ast: FileAST):
+    """Detect collector registration pattern in Lua init files.
+
+    Looks for table constructors assigned to a variable that contain
+    "name", "js_files", and "endpoint" fields:
+
+        local collector = {
+            name = "device",
+            js_files = { "a.js.erb", "b.js.erb" },
+            endpoint = "/api/device_id",
+        }
+    """
+    # Look for table constructors inside variable_declaration or assignment_statement
+    for table_node in _walk_all(root, "table_constructor"):
+        # Check that this table has the required field keys
+        fields: dict[str, object] = {}
+        for child in table_node.named_children:
+            if child.type != "field":
+                continue
+            name_node = child.child_by_field_name("name")
+            value_node = child.child_by_field_name("value")
+            if not (name_node and value_node):
+                continue
+            key = _text(name_node, source)
+            if key in ("name", "endpoint"):
+                if value_node.type == "string":
+                    fields[key] = _get_string_value(value_node, source)
+            elif key == "js_files":
+                if value_node.type == "table_constructor":
+                    js_files = []
+                    for item in value_node.named_children:
+                        if item.type == "field":
+                            val = item.child_by_field_name("value")
+                            if val and val.type == "string":
+                                js_files.append(_get_string_value(val, source))
+                        elif item.type == "string":
+                            js_files.append(_get_string_value(item, source))
+                    fields["js_files"] = js_files
+
+        if "name" in fields and "endpoint" in fields and "js_files" in fields:
+            ast.collector_info = CollectorInfo(
+                name=fields["name"],
+                endpoint=fields["endpoint"],
+                js_files=fields["js_files"],
+                line=table_node.start_point[0] + 1,
+            )
+            return  # Only detect the first collector registration
+
+
+# ---------------------------------------------------------------------------
 # Main entry point
 # ---------------------------------------------------------------------------
 
@@ -1304,7 +1357,10 @@ def parse_lua_file(file_path: str) -> FileAST:
     # 13. File-based IPC detection
     _extract_ipc_calls(root, source, ast)
 
-    # 14. Build qualified names for functions
+    # 14. Collector registration detection
+    _detect_collector_registration(root, source, ast)
+
+    # 15. Build qualified names for functions
     if ast.module_name:
         for func in ast.functions:
             if not func.qualified_name:

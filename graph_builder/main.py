@@ -30,7 +30,8 @@ from .parsers.nginx_parser import parse_nginx_conf, parse_nginx_conf_recursive
 from .parsers.base import FileAST
 from .resolvers.lua_resolver import LuaResolver
 from .resolvers.call_resolver import CallResolver
-from .resolvers.redis_abstraction_resolver import resolve_redis_abstractions
+from .resolvers.redis_abstraction_resolver import resolve_redis_abstractions, resolve_go_redis_abstractions
+from .resolvers.builtin_classifier import BuiltinClassifier
 from .validate.spot_check import spot_check
 from .validate.coverage_report import run_coverage_report
 from .validate.graph_health import run_health_report
@@ -197,10 +198,40 @@ def build(ctx):
     click.echo("Resolving Redis abstraction layers...")
     redis_before = sum(len(ast.redis_accesses) for ast in all_asts.values())
     resolve_redis_abstractions(all_asts)
+    resolve_go_redis_abstractions(all_asts)
     redis_after = sum(len(ast.redis_accesses) for ast in all_asts.values())
     redis_added = redis_after - redis_before
     if redis_added > 0:
         click.echo(f"  Redis accesses via abstractions: +{redis_added} (total: {redis_after})")
+
+    # Step 4c: Classify unresolved calls
+    click.echo("Classifying unresolved calls...")
+    classifier = BuiltinClassifier()
+    classifier.classify_all(all_asts)
+    class_stats = classifier.stats()
+    click.echo(f"  Builtins: {class_stats['builtin']}, External: {class_stats['external']}, "
+               f"Truly unresolved: {class_stats['truly_unresolved']}")
+
+    # Step 4d: Cross-language endpoint linking
+    click.echo("Linking cross-language endpoints...")
+    from .resolvers.endpoint_linker import EndpointLinker
+    nginx_config_obj = None
+    if config.nginx_conf and Path(config.nginx_conf).exists():
+        nginx_config_obj = parse_nginx_conf_recursive(
+            config.nginx_conf, config.nginx_base_path,
+        )
+    linker = EndpointLinker(nginx_config_obj)
+    go_registry = linker.build_go_handler_registry(all_asts)
+    linker.register_go_handlers(go_registry)
+    endpoint_links = linker.link_all(all_asts)
+    if endpoint_links:
+        click.echo(f"  Linked {len(endpoint_links)} cross-language HTTP calls to endpoints")
+
+    # Step 4e: Resolve collector registrations
+    from .resolvers.collector_resolver import resolve_collectors
+    collector_mappings = resolve_collectors(all_asts)
+    if collector_mappings:
+        click.echo(f"  Found {len(collector_mappings)} collector registrations")
 
     # Step 5: Ingest into Memgraph
     click.echo("Ingesting into Memgraph...")
@@ -271,7 +302,10 @@ def build(ctx):
 def validate(ctx):
     """Run the coverage report against the codebase."""
     config = ctx.obj["config"]
-    report = run_coverage_report(config.repo_root, config.nginx_conf, config.nginx_base_path)
+    report = run_coverage_report(
+        config.repo_root, config.nginx_conf, config.nginx_base_path,
+        config=config,
+    )
     click.echo(report)
 
 

@@ -264,3 +264,60 @@ def resolve_redis_abstractions(all_asts: dict[str, FileAST],
                         ))
                         already_matched.add(call.line)
                         break
+
+
+# Go Redis client methods
+_GO_REDIS_READ = {
+    "Get", "GetAsString", "GetRange", "GetSet", "GetEx", "GetDel",
+    "Strlen", "Exists", "Type", "TTL", "PTTL", "Keys", "Scan",
+    "HGet", "HGetAll", "HMGet", "HExists", "HKeys", "HVals", "HLen",
+    "SMembers", "SIsMember", "SCard", "SRandMember",
+    "ZRange", "ZRangeByScore", "ZRank", "ZScore", "ZCard",
+    "LRange", "LLen", "LIndex",
+}
+
+_GO_REDIS_WRITE = {
+    "Set", "SetEX", "SetNX", "Append", "Incr", "IncrBy", "Decr", "DecrBy",
+    "Del", "Expire", "ExpireAt", "PExpire", "Persist",
+    "HSet", "HMSet", "HDel", "HIncrBy",
+    "SAdd", "SRem", "SPop",
+    "ZAdd", "ZRem", "ZIncrBy",
+    "LPush", "RPush", "LPop", "RPop", "LSet", "LTrim",
+    "Publish",
+}
+
+_GO_REDIS_INDICATORS = {"redisClient", "RedisClient", "redis.Client", "rdb", "redisConn"}
+
+
+def resolve_go_redis_abstractions(all_asts):
+    """Detect Redis calls in Go code through client wrapper patterns."""
+    from graph_builder.parsers.base import RedisKeyAccess
+
+    for file_path, ast in all_asts.items():
+        if ast.language != "go":
+            continue
+        for call in ast.calls:
+            callee = call.callee_string
+            parts = callee.rsplit(".", 1)
+            if len(parts) != 2:
+                continue
+            receiver, method = parts
+            is_redis = any(ind in receiver for ind in _GO_REDIS_INDICATORS)
+            if not is_redis:
+                receiver_tail = receiver.rsplit(".", 1)[-1]
+                is_redis = receiver_tail.lower() in {"redisclient", "redis", "rdb", "redisconn", "rclient"}
+            if not is_redis:
+                continue
+            if method in _GO_REDIS_READ:
+                access_type = "read"
+            elif method in _GO_REDIS_WRITE:
+                access_type = "write"
+            else:
+                continue
+            ast.redis_accesses.append(RedisKeyAccess(
+                key_name=f"<via go:{receiver}>",
+                operation=method,
+                access_type=access_type,
+                function=call.caller_function,
+                line=call.line,
+            ))

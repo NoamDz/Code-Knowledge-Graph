@@ -166,6 +166,12 @@ def run_health_report(config: Config) -> str:
     resolve_redis_abstractions(all_asts)
     redis_after = sum(len(ast.redis_accesses) for ast in all_asts.values())
 
+    # --- Step 6: Classify unresolved calls ---
+    from graph_builder.resolvers.builtin_classifier import BuiltinClassifier
+    classifier = BuiltinClassifier()
+    classifier.classify_all(all_asts)
+    class_stats = classifier.stats()
+
     # --- Collect per-language stats ---
     lang_data: dict[str, dict] = defaultdict(lambda: {
         "files": 0,
@@ -383,6 +389,11 @@ def run_health_report(config: Config) -> str:
     lines.append(f"  Call resolution:   {call_stats['total_calls']} total, "
                  f"{call_stats['already_resolved'] + call_stats['newly_resolved']} resolved "
                  f"({call_stats['resolution_rate']:.1f}%)")
+
+    lines.append(f"  Call classification:")
+    lines.append(f"    Builtins:          {class_stats['builtin']}")
+    lines.append(f"    External:          {class_stats['external']}")
+    lines.append(f"    Truly unresolved:  {class_stats['truly_unresolved']}")
 
     lines.append(f"  Redis accesses:  {redis_after}"
                  + (f" (direct: {redis_before}, via abstractions: +{redis_after - redis_before})"
