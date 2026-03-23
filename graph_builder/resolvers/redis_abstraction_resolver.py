@@ -268,22 +268,26 @@ def resolve_redis_abstractions(all_asts: dict[str, FileAST],
 
 # Go Redis client methods
 _GO_REDIS_READ = {
-    "Get", "GetAsString", "GetRange", "GetSet", "GetEx", "GetDel",
+    "Get", "GetAsString", "GetAsInt", "GetAsFloat",
+    "GetRange", "GetSet", "GetEx", "GetDel",
     "Strlen", "Exists", "Type", "TTL", "PTTL", "Keys", "Scan",
-    "HGet", "HGetAll", "HMGet", "HExists", "HKeys", "HVals", "HLen",
+    "HGet", "HGetAsString", "HGetAsInt", "HGetAsFloat",
+    "HGetAll", "HMGet", "HExists", "HKeys", "HVals", "HLen",
     "SMembers", "SIsMember", "SCard", "SRandMember",
     "ZRange", "ZRangeByScore", "ZRank", "ZScore", "ZCard",
     "LRange", "LLen", "LIndex",
+    "Ping",
 }
 
 _GO_REDIS_WRITE = {
     "Set", "SetEX", "SetNX", "Append", "Incr", "IncrBy", "Decr", "DecrBy",
     "Del", "Expire", "ExpireAt", "PExpire", "Persist",
-    "HSet", "HMSet", "HDel", "HIncrBy",
+    "HSet", "HSetWithExpire", "HMSet", "HDel", "HIncrBy",
     "SAdd", "SRem", "SPop",
     "ZAdd", "ZRem", "ZIncrBy",
     "LPush", "RPush", "LPop", "RPop", "LSet", "LTrim",
     "Publish",
+    "Close",
 }
 
 _GO_REDIS_INDICATORS = {"redisClient", "RedisClient", "redis.Client", "rdb", "redisConn"}

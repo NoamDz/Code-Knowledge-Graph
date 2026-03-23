@@ -24,6 +24,8 @@ JS = Language(tsjs.language())
 # ERB tag pattern: replaces <%= ... %>, <% ... %>, <%- ... %>, <%# ... %>
 RE_ERB_TAG = re.compile(rb'<%[=\-#]?.*?%>', re.DOTALL)
 
+_SEND_REQUEST_CALLEES = {"sendRequest", "Container._sendRequest", "backwardCommunicator._sendRequest"}
+
 
 def _strip_erb(source: bytes) -> bytes:
     """Strip ERB tags from source, replacing with empty string literals."""
@@ -522,7 +524,7 @@ def _extract_js_http_calls(root, source: bytes, ast: FileAST):
         callee = _text(func, source)
         args = call_node.child_by_field_name("arguments")
 
-        if callee == "sendRequest" and args and args.named_child_count >= 2:
+        if callee in _SEND_REQUEST_CALLEES and args and args.named_child_count >= 2:
             method_arg = args.named_children[0]
             url_arg = args.named_children[1]
             method = _try_get_string(method_arg, source)

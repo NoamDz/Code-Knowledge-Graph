@@ -23,11 +23,12 @@ import tree_sitter_lua as tslua
 from .base import (
     FileAST, FunctionDef, ImportRef, CallRef, ModuleInfo,
     ModulePatternType, ContextAccess, SharedDictAccess,
-    InternalRedirect, RedisKeyAccess, HttpCallRef, CollectorInfo,
+    InternalRedirect, RedisKeyAccess, HttpCallRef,
 )
 
 LUA = Language(tslua.language())
 
+_REQUIRE_FUNCTIONS = {"require", "require_version"}
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -144,7 +145,8 @@ def _extract_requires(root, source: bytes, ast: FileAST) -> dict[str, str]:
         name_node = call_node.child_by_field_name("name")
         if not name_node or name_node.type != "identifier":
             continue
-        if _text(name_node, source) != "require":
+        func_name = _text(name_node, source)
+        if func_name not in _REQUIRE_FUNCTIONS:
             continue
 
         args = _first_child_of_type(call_node, "arguments")
@@ -159,7 +161,7 @@ def _extract_requires(root, source: bytes, ast: FileAST) -> dict[str, str]:
             ast.imports.append(ImportRef(
                 module_string=_text(first_arg, source),
                 line=first_arg.start_point[0] + 1,
-                import_type="require",
+                import_type=func_name,
                 is_dynamic=True,
                 static_prefix=static_prefix,
             ))
@@ -179,7 +181,7 @@ def _extract_requires(root, source: bytes, ast: FileAST) -> dict[str, str]:
         ast.imports.append(ImportRef(
             module_string=mod_str,
             line=call_node.start_point[0] + 1,
-            import_type="require",
+            import_type=func_name,
             local_binding=local_binding,
         ))
 
@@ -1049,6 +1051,83 @@ def _extract_http_calls_lua(root, source: bytes, ast: FileAST, binding_map: dict
                 line=line,
             ))
 
+    # --- http_handler.get/post/put/send_request detection ---
+    # Application code uses http_handler (from lib.lua.http_handler) instead of
+    # raw resty.http.  Detect calls like http_handler.post(url, params, unix_sock, ...)
+    http_handler_module = "lib.lua.http_handler"
+    http_handler_vars: set[str] = set()
+    for var, mod in binding_map.items():
+        if mod == http_handler_module:
+            http_handler_vars.add(var)
+
+    if http_handler_vars:
+        _http_handler_method_map = {
+            "get": "GET",
+            "post": "POST",
+            "put": "PUT",
+        }
+
+        for call_node in _walk_all(root, "function_call"):
+            name_node = call_node.child_by_field_name("name")
+            if not name_node or name_node.type != "dot_index_expression":
+                continue
+
+            table_node = name_node.child_by_field_name("table")
+            field_node = name_node.child_by_field_name("field")
+            if not (table_node and field_node):
+                continue
+
+            table_text = _text(table_node, source)
+            if table_text not in http_handler_vars:
+                continue
+
+            func_name = _text(field_node, source)
+            args = _first_child_of_type(call_node, "arguments")
+            if not args or args.named_child_count == 0:
+                continue
+
+            line = call_node.start_point[0] + 1
+            enclosing = _find_enclosing_function(call_node, source)
+            named_args = args.named_children
+
+            if func_name in _http_handler_method_map:
+                # .get(url, params, unix_socket_path, headers, ...)
+                # .post(url, params, unix_socket_path, headers, body)
+                # .put(url, params, unix_socket_path, headers, body)
+                h_method = _http_handler_method_map[func_name]
+                # URL is arg[0]
+                url_arg = named_args[0]
+                url_val = _get_string_value(url_arg, source) if url_arg.type == "string" else "<dynamic>"
+                # Unix socket is arg[2] (3rd argument)
+                sock_val = None
+                if len(named_args) > 2 and named_args[2].type == "string":
+                    sock_val = _get_string_value(named_args[2], source)
+                ast.http_calls.append(HttpCallRef(
+                    url_or_path=sock_val if sock_val and sock_val.startswith("unix:") else url_val,
+                    method=h_method,
+                    function=enclosing,
+                    line=line,
+                ))
+
+            elif func_name == "send_request":
+                # .send_request(method, url, params, headers, unix_socket_path, body)
+                # Method is arg[0], URL is arg[1], unix socket is arg[4]
+                h_method = "unknown"
+                if len(named_args) > 0 and named_args[0].type == "string":
+                    h_method = _get_string_value(named_args[0], source).upper()
+                url_val = "<dynamic>"
+                if len(named_args) > 1 and named_args[1].type == "string":
+                    url_val = _get_string_value(named_args[1], source)
+                sock_val = None
+                if len(named_args) > 4 and named_args[4].type == "string":
+                    sock_val = _get_string_value(named_args[4], source)
+                ast.http_calls.append(HttpCallRef(
+                    url_or_path=sock_val if sock_val and sock_val.startswith("unix:") else url_val,
+                    method=h_method,
+                    function=enclosing,
+                    line=line,
+                ))
+
 
 # ---------------------------------------------------------------------------
 # File-based IPC detection
@@ -1244,59 +1323,6 @@ def _extract_metatable_inheritance(root, source: bytes, ast: FileAST, binding_ma
 
 
 # ---------------------------------------------------------------------------
-# Collector registration detection
-# ---------------------------------------------------------------------------
-
-def _detect_collector_registration(root, source: bytes, ast: FileAST):
-    """Detect collector registration pattern in Lua init files.
-
-    Looks for table constructors assigned to a variable that contain
-    "name", "js_files", and "endpoint" fields:
-
-        local collector = {
-            name = "device",
-            js_files = { "a.js.erb", "b.js.erb" },
-            endpoint = "/api/device_id",
-        }
-    """
-    # Look for table constructors inside variable_declaration or assignment_statement
-    for table_node in _walk_all(root, "table_constructor"):
-        # Check that this table has the required field keys
-        fields: dict[str, object] = {}
-        for child in table_node.named_children:
-            if child.type != "field":
-                continue
-            name_node = child.child_by_field_name("name")
-            value_node = child.child_by_field_name("value")
-            if not (name_node and value_node):
-                continue
-            key = _text(name_node, source)
-            if key in ("name", "endpoint"):
-                if value_node.type == "string":
-                    fields[key] = _get_string_value(value_node, source)
-            elif key == "js_files":
-                if value_node.type == "table_constructor":
-                    js_files = []
-                    for item in value_node.named_children:
-                        if item.type == "field":
-                            val = item.child_by_field_name("value")
-                            if val and val.type == "string":
-                                js_files.append(_get_string_value(val, source))
-                        elif item.type == "string":
-                            js_files.append(_get_string_value(item, source))
-                    fields["js_files"] = js_files
-
-        if "name" in fields and "endpoint" in fields and "js_files" in fields:
-            ast.collector_info = CollectorInfo(
-                name=fields["name"],
-                endpoint=fields["endpoint"],
-                js_files=fields["js_files"],
-                line=table_node.start_point[0] + 1,
-            )
-            return  # Only detect the first collector registration
-
-
-# ---------------------------------------------------------------------------
 # Main entry point
 # ---------------------------------------------------------------------------
 
@@ -1357,10 +1383,7 @@ def parse_lua_file(file_path: str) -> FileAST:
     # 13. File-based IPC detection
     _extract_ipc_calls(root, source, ast)
 
-    # 14. Collector registration detection
-    _detect_collector_registration(root, source, ast)
-
-    # 15. Build qualified names for functions
+    # 14. Build qualified names for functions
     if ast.module_name:
         for func in ast.functions:
             if not func.qualified_name:

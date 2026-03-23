@@ -118,15 +118,6 @@ class HttpCallRef:
 
 
 @dataclass
-class CollectorInfo:
-    """A collector registration from an init.lua file."""
-    name: str                                     # "device", "behave", etc.
-    endpoint: str                                  # "/api/device_id"
-    js_files: list[str] = field(default_factory=list)  # ["device_utils.js.erb", ...]
-    line: int = 0
-
-
-@dataclass
 class ClassDef:
     """A class definition."""
     name: str
@@ -171,9 +162,6 @@ class FileAST:
     # Cross-service communication
     redis_accesses: list[RedisKeyAccess] = field(default_factory=list)
     http_calls: list[HttpCallRef] = field(default_factory=list)
-
-    # Collector registration (Lua init.lua files)
-    collector_info: CollectorInfo | None = None
 
     # Metatable inheritance (Lua-specific)
     metatable_parents: dict[str, str] = field(default_factory=dict)  # child_table → parent_module_string

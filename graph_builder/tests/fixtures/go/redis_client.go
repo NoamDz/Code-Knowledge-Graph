@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"fmt"
 	"github.com/go-redis/redis/v8"
 	"time"
 )
@@ -32,4 +33,12 @@ func (s *Server) predict(sessionID string) string {
 	s.redisClient.Set("prediction:"+sessionID, modelData, 24*time.Hour)
 	cached, _ := s.redisClient.HGet("cache:models", "default")
 	return cached
+}
+
+func (s *Server) customMethods(sessionID string) string {
+	val, _ := s.redisClient.HGetAsString("cache:models", "default")
+	count, _ := s.redisClient.GetAsInt("counter:" + sessionID)
+	s.redisClient.HSetWithExpire("session:"+sessionID, "count", count, 24*time.Hour)
+	floatVal, _ := s.redisClient.GetAsFloat("score:" + sessionID)
+	return fmt.Sprintf("%s %d %f", val, count, floatVal)
 }

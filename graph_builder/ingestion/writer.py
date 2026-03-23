@@ -385,17 +385,6 @@ class GraphWriter:
                 s.type = "upstream"
         """, name=name, servers=servers, socket_path=socket_path)
 
-    def upsert_collector_bundle(self, collector_name, endpoint, js_file, init_file):
-        """Create BUNDLES and SERVES edges for a collector registration."""
-        self._run("""
-            MERGE (init:File {path: $init_file})
-            MERGE (js:File {path: $js_file})
-            MERGE (e:Endpoint {path: $endpoint})
-            MERGE (init)-[:BUNDLES {collector: $collector}]->(js)
-            MERGE (js)-[:SERVES]->(e)
-        """, init_file=init_file, js_file=js_file,
-             endpoint=endpoint, collector=collector_name)
-
     # --- Bulk operations ---
 
     def ingest_file_ast(self, ast: FileAST, resolved_imports: dict[str, str | None] | None = None):

@@ -227,12 +227,6 @@ def build(ctx):
     if endpoint_links:
         click.echo(f"  Linked {len(endpoint_links)} cross-language HTTP calls to endpoints")
 
-    # Step 4e: Resolve collector registrations
-    from .resolvers.collector_resolver import resolve_collectors
-    collector_mappings = resolve_collectors(all_asts)
-    if collector_mappings:
-        click.echo(f"  Found {len(collector_mappings)} collector registrations")
-
     # Step 5: Ingest into Memgraph
     click.echo("Ingesting into Memgraph...")
     try:

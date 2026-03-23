@@ -37,3 +37,14 @@ def test_go_redis_method_classification():
     assert ops.get("GetAsString") == "read"
     assert ops.get("Set") == "write"
     assert ops.get("HGet") == "read"
+
+def test_go_redis_custom_methods():
+    """Custom wrapper methods should be detected."""
+    ast = parse_go_file(str(FIXTURES / "redis_client.go"))
+    all_asts = {"test.go": ast}
+    resolve_go_redis_abstractions(all_asts)
+    ops = {a.operation for a in ast.redis_accesses}
+    assert "HGetAsString" in ops, f"HGetAsString not found in {ops}"
+    assert "GetAsInt" in ops, f"GetAsInt not found in {ops}"
+    assert "HSetWithExpire" in ops, f"HSetWithExpire not found in {ops}"
+    assert "GetAsFloat" in ops, f"GetAsFloat not found in {ops}"
