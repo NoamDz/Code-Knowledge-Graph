@@ -1,3 +1,127 @@
+code-graph -c config.yml validate
+
+============================================================
+  Graph Coverage Report
+  Repository: /Users/il021250/dev/pinpoint/src
+============================================================
+
+  Total source files found: 1234
+
+--- FILES ---
+   lua:  820 /  820 parsed (100.0%)  [errors: 0]
+    py:   96 /   96 parsed (100.0%)  [errors: 0]
+    rb:  151 /  151 parsed (100.0%)  [errors: 0]
+    js:   94 /   94 parsed (100.0%)  [errors: 0]
+    go:   73 /   73 parsed (100.0%)  [errors: 0]
+
+--- ENTITIES ---
+  Functions:      7822 (5641 public)
+  Classes:         330
+    lua: 5056 functions (3162 public), 0 classes
+    py: 391 functions (377 public), 98 classes
+    rb: 809 functions (715 public), 91 classes
+    js: 908 functions (908 public), 0 classes
+    go: 658 functions (479 public), 141 classes
+
+--- IMPORTS ---
+  Total import refs:  6610
+  Dynamic imports:    67
+  Likely resolved:    5566 / 6543
+  Likely internal but unresolved: 10
+    resty.lock (from monitor.lua)
+    resty.lock (from mysql_fallback_timer.lua)
+    resty.lock (from redis_dns_timer.lua)
+    resty.iputils (from cloudfront_ips.lua)
+    resty.lock (from async_timer.lua)
+    resty.http (from socket.lua)
+    resty.dns.resolver (from socket.lua)
+    resty.redis (from redisglider.lua)
+    resty.redis (from rediscluster.lua)
+    resty.sha256 (from mysql.lua)
+
+--- EXPORTS ---
+  Total exports:     7307
+  Files with exports:    1064
+  Files without exports: 170
+    lua: 765 / 820 (93.3%)
+    py: 79 / 96 (82.3%)
+    rb: 82 / 151 (54.3%)
+      ⚠ LOW: Consider auditing rb parser export detection
+    js: 69 / 94 (73.4%)
+      ⚠ LOW: Consider auditing js parser export detection
+    go: 69 / 73 (94.5%)
+
+--- CALLS ---
+  Total calls:         45436
+  Resolved to module:  19575 (43.1%)
+  pcall-wrapped:       259
+  Call resolution:     43.1% (19575/45436)
+
+--- CALL CLASSIFICATION ---
+  Builtins:            7601
+  External libs:       8
+  Truly unresolved:    18252
+  Resolved (skipped):  19575
+  Effective coverage:  59.8% (resolved + builtin + external)
+  Calls per function:  5.8
+
+--- OPENRESTY ---
+  ngx.ctx accesses:     296
+  ngx.shared accesses:  41
+  Internal redirects:   0
+
+--- CROSS-SERVICE ---
+  Redis key accesses:   654
+    (direct: 0, via abstractions: +654)
+    lua: 654
+  HTTP client calls:    21
+    lua: 17
+    py: 1
+    go: 3
+
+--- LUA MODULE PATTERNS ---
+                     M: 592
+                 named: 186
+           side_effect: 17
+                direct: 14
+               unknown: 8
+                    _M: 3
+
+--- NGINX CONFIG ---
+  lua_package_path entries: 24
+  Shared dicts: 26
+  Locations: 24
+  Global Lua phases: 4
+  Location Lua phases: 13
+  Include files: 8
+  Upstreams: 0
+  Proxy_pass locations: 2
+
+--- WARNINGS (76) ---
+  ⚠ Dynamic require at line 10: require(string.format("tasks.%s", task_name))
+  ⚠ Dynamic require at line 145: require(current.path)
+  ⚠ Dynamic require at line 64: require(path)
+  ⚠ Dynamic require at line 2: require(string.format("deferrer.%s.client", config.DEFERRER_ENGINE))
+  ⚠ Dynamic require at line 16: require(format("malware.tasks.%s", task_name))
+  ⚠ Dynamic require at line 18: require(format("malware.collectors.%s", name))
+  ⚠ Dynamic require at line 28: require(format("common.collectors.%s", name))
+  ⚠ Dynamic require at line 11: require(format("malware.models.%s", name))
+  ⚠ Dynamic require at line 10: require(format("malware.adapters.%s", name))
+  ⚠ Dynamic require at line 18: require(format("malware.actors.%s", name))
+  ⚠ Dynamic require at line 27: require(format("common.actors.%s", name))
+  ⚠ Dynamic require at line 9: require(format("malware.assessors.%s", name))
+  ⚠ Dynamic require at line 18: require(format("common.assessors.%s", name))
+  ⚠ Dynamic require at line 10: require(format("malware.handlers.%s", name))
+  ⚠ Dynamic require at line 18: require(format("common.handlers.%s", name))
+  ⚠ Dynamic require at line 31: require(collector_path)
+  ⚠ Dynamic require at line 37: require(helper_path)
+  ⚠ Dynamic require at line 44: require(model_path)
+  ⚠ Dynamic require at line 54: require(item_path)
+  ⚠ Dynamic require at line 10: require(string.format("common.tasks.%s", task_name))
+  ... and 56 more
+
+  Report generated in 26.26s
+
 (.venv) il021250@Noams-MacBook-Pro Code-Knowledge-Graph % code-graph -c config.yml health
 
 ======================================================================
@@ -120,7 +244,7 @@
   Functions:       809 (715 public)
   Classes:         91
   Export coverage: 82/151 files (54.3%)
-  Import resolution: 8/343 (2.3%)
+  Import resolution: 145/343 (42.3%)
   Call resolution:   730/5681 (12.8%)
   Redis accesses:  0
   HTTP calls:      0
@@ -132,13 +256,13 @@
      17 imports  generate_origin.rb
      16 imports  generator.rb
      14 imports  runner.rb
-  Orphan files (no import edges): 139
+  Orphan files (no import edges): 88
     behave.rb
-    carboncopy.rb
-    common_fields.rb
     custom_fields.rb
     device_id.rb
-    ... and 134 more
+    failed_login.rb
+    fraud_attributes.rb
+    ... and 83 more
 
   ──────────────────────────────────────────────────────────────────
   TECHNIQUE COVERAGE MATRIX
@@ -159,7 +283,7 @@
   Total files:     1234 (0 parse errors)
   Total functions: 7822
   Total classes:   330
-  Import resolution: 5111/6543 (78.1%)
+  Import resolution: 5248/6543 (80.2%)
   Call resolution:   45436 total, 19592 resolved (43.1%)
   Call classification:
     Builtins:          7601
@@ -168,4 +292,4 @@
   Redis accesses:  654 (direct: 0, via abstractions: +654)
   HTTP calls:      21
 
-  Report generated in 59.23s
+  Report generated in 71.19s
