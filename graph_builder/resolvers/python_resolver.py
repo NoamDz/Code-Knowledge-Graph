@@ -71,7 +71,16 @@ class PythonResolver:
         if module_string.startswith(".") and from_file:
             return self._resolve_relative(module_string, from_file)
 
-        return self._resolve_absolute(module_string)
+        # Try absolute resolution first
+        result = self._resolve_absolute(module_string)
+        if result:
+            return result
+
+        # For bare-name imports (no dots), try same-directory resolution
+        if "." not in module_string and from_file:
+            return self._resolve_same_directory(module_string, from_file)
+
+        return None
 
     def _resolve_relative(self, module_string: str, from_file: str) -> str | None:
         """Resolve a relative import like '.utils' or '..models'."""
@@ -142,6 +151,21 @@ class PythonResolver:
             if candidate.exists():
                 return str(candidate)
 
+        return None
+
+    def _resolve_same_directory(self, module_string: str, from_file: str) -> str | None:
+        """Resolve a bare import by looking in the same directory.
+
+        Handles flat Python services that use:
+            from config import Config  (config.py in same dir)
+        """
+        from_dir = Path(from_file).parent
+        candidate = from_dir / f"{module_string}.py"
+        if candidate.exists():
+            return str(candidate)
+        candidate_pkg = from_dir / module_string / "__init__.py"
+        if candidate_pkg.exists():
+            return str(candidate_pkg)
         return None
 
     def stats(self) -> dict:

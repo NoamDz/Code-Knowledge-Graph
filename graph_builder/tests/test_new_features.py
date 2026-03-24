@@ -609,9 +609,13 @@ def test_ruby_import_resolver():
     assert resolved is not None, "Should resolve require_relative ./helper"
     assert "helper.rb" in resolved, f"Expected helper.rb in {resolved}"
 
+    # Bare require for stdlib should return sentinel
+    assert resolver.resolve("json", main_file, import_type="require") == "__ruby_stdlib__", \
+        "Stdlib 'json' should resolve to __ruby_stdlib__"
+
     # Bare require for external gem should return None
-    assert resolver.resolve("json", main_file, import_type="require") is None, \
-        "External gem 'json' should not resolve"
+    assert resolver.resolve("nokogiri", main_file, import_type="require") is None, \
+        "External gem 'nokogiri' should not resolve"
 
     print(f"  PASS: Ruby import resolver — resolved ./helper -> {Path(resolved).name}")
 

@@ -466,6 +466,24 @@ class GraphWriter:
                 hc.function, ast.file_path, hc.line,
             )
 
+    def upsert_mission_dispatch(self, source_file: str, task_name: str,
+                                 target_file: str | None, line: int):
+        """Create a DISPATCHES edge from a file to a task handler file."""
+        if target_file:
+            self._run("""
+                MERGE (src:File {path: $source})
+                MERGE (tgt:File {path: $target})
+                MERGE (src)-[:DISPATCHES {task: $task, line: $line}]->(tgt)
+            """, source=source_file, target=target_file, task=task_name, line=line)
+
+    def upsert_same_package(self, file_a: str, file_b: str, package_name: str):
+        """Create a SAME_PACKAGE edge between two files in the same Go package."""
+        self._run("""
+            MERGE (a:File {path: $file_a})
+            MERGE (b:File {path: $file_b})
+            MERGE (a)-[:SAME_PACKAGE {package: $pkg}]->(b)
+        """, file_a=file_a, file_b=file_b, pkg=package_name)
+
     def upsert_endpoint_link(self, source_file: str, source_function: str,
                              endpoint_path: str, method: str, line: int):
         """HTTP_CALLS edge from caller to endpoint (cross-language)."""

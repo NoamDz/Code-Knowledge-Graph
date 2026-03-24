@@ -4,8 +4,9 @@ Resolves require/require_relative statements to file paths.
 
 Handles:
   - require_relative "../lib/auth" -- relative to current file + .rb
-  - require "json" -- external gem, returns None
+  - require "json" -- stdlib, returns "__ruby_stdlib__"
   - require "my_app/models/user" -- search index for matching path
+  - require "rails" -- external gem, returns None
 
 Usage:
     resolver = RubyResolver("/path/to/repo")
@@ -16,6 +17,21 @@ Usage:
 from __future__ import annotations
 
 from pathlib import Path
+
+# Known Ruby stdlib modules (ships with Ruby, no gem install needed)
+_RUBY_STDLIB = {
+    "erb", "fileutils", "json", "yaml", "csv", "set", "ostruct",
+    "pathname", "uri", "net/http", "net/https", "net/smtp",
+    "socket", "openssl", "digest", "base64", "securerandom",
+    "logger", "tempfile", "stringio", "pp", "optparse", "getoptlong",
+    "find", "benchmark", "date", "time", "bigdecimal", "cgi",
+    "drb", "fiddle", "monitor", "mutex_m", "observer", "open3",
+    "open-uri", "rake", "rdoc", "readline", "shellwords",
+    "singleton", "strscan", "timeout", "tmpdir", "webrick",
+    "zlib", "forwardable", "abbrev", "English", "fiber",
+    "io/console", "io/wait", "ipaddr", "resolv", "tsort",
+    "weakref", "delegate", "mkmf", "racc", "psych",
+}
 
 
 class RubyResolver:
@@ -37,6 +53,10 @@ class RubyResolver:
             key = rel.removesuffix(".rb")
             self._index[key] = str(rb_file)
 
+    def is_stdlib(self, module_string: str) -> bool:
+        """Check if a require string is a Ruby stdlib module."""
+        return module_string in _RUBY_STDLIB or module_string.split("/")[0] in _RUBY_STDLIB
+
     def resolve(self, module_string: str, from_file: str | None = None,
                 import_type: str = "require") -> str | None:
         """Resolve a Ruby require/require_relative to a file path.
@@ -47,18 +67,25 @@ class RubyResolver:
             import_type: "require" or "require_relative"
 
         Returns:
-            The resolved file path, or None if not found (external gem).
+            The resolved file path, "__ruby_stdlib__" for stdlib, or None
+            if not found (external gem).
         """
         if import_type == "require_relative" and from_file:
-            from_dir = Path(from_file).parent
-            target = (from_dir / module_string).resolve()
-            candidate = target.with_suffix(".rb") if not target.suffix else target
-            if candidate.exists():
-                return str(candidate)
-            # Also try without adding suffix if the path already ends in .rb
-            if target.exists():
-                return str(target)
+            try:
+                from_dir = Path(from_file).resolve().parent
+                target = (from_dir / module_string).resolve()
+                candidate = target.with_suffix(".rb") if not target.suffix else target
+                if candidate.exists():
+                    return str(candidate)
+                if target.exists() and target.is_file():
+                    return str(target)
+            except (OSError, ValueError):
+                pass
             return None
+
+        # Check if it's a known stdlib module
+        if self.is_stdlib(module_string):
+            return "__ruby_stdlib__"
 
         # require "name" -- try index lookup (exact match)
         if module_string in self._index:

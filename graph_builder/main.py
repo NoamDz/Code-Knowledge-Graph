@@ -170,6 +170,12 @@ def build(ctx):
         for imp in ast.imports:
             if imp.is_dynamic:
                 continue
+            # Go stdlib classification: mark stdlib imports before normal resolution
+            if ast.language == "go":
+                go_res = resolvers.get("go")
+                if go_res and hasattr(go_res, 'is_stdlib') and go_res.is_stdlib(imp.module_string):
+                    file_resolved[imp.module_string] = "__go_stdlib__"
+                    continue
             resolver_key = lang_to_resolver.get(ast.language)
             resolver = resolvers.get(resolver_key) if resolver_key else None
             if resolver:
@@ -227,6 +233,20 @@ def build(ctx):
     if endpoint_links:
         click.echo(f"  Linked {len(endpoint_links)} cross-language HTTP calls to endpoints")
 
+    # Step 4e: Mission dispatch resolution
+    from .resolvers.mission_resolver import resolve_missions
+    missions = resolve_missions(all_asts)
+    if missions:
+        resolved_count = 0
+        for m in missions:
+            pattern = m["target_pattern"]
+            for fp in all_asts:
+                if pattern in fp.replace("\\", "/"):
+                    m["target_file"] = fp
+                    resolved_count += 1
+                    break
+        click.echo(f"  Missions: {len(missions)} dispatches, {resolved_count} resolved to files")
+
     # Step 5: Ingest into Memgraph
     click.echo("Ingesting into Memgraph...")
     try:
@@ -278,6 +298,24 @@ def build(ctx):
             writer.ingest_file_ast(ast, resolved_imports.get(file_path, {}))
 
         writer.flush_all()
+
+        # Go same-package linking
+        go_resolver = resolvers.get("go")
+        if go_resolver and hasattr(go_resolver, "get_package_siblings"):
+            pkg_edges = 0
+            seen = set()
+            for file_path, ast in all_asts.items():
+                if ast.language == "go":
+                    siblings = go_resolver.get_package_siblings(file_path)
+                    for sibling in siblings:
+                        edge_key = tuple(sorted([file_path, sibling]))
+                        if edge_key not in seen:
+                            writer.upsert_same_package(file_path, sibling, "server")
+                            seen.add(edge_key)
+                            pkg_edges += 1
+            if pkg_edges:
+                click.echo(f"  Go same-package edges: {pkg_edges}")
+
         click.echo(f"  {writer.write_count} graph writes")
         writer.close()
 

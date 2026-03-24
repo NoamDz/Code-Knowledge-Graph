@@ -1130,6 +1130,68 @@ def _extract_http_calls_lua(root, source: bytes, ast: FileAST, binding_map: dict
 
 
 # ---------------------------------------------------------------------------
+# Mission dispatch detection
+# ---------------------------------------------------------------------------
+
+_MISSIONER_MODULES = {"core.deferrer.missioner.client"}
+
+
+def _extract_mission_dispatches(root, source: bytes, ast: FileAST, binding_map: dict[str, str]):
+    """Detect missioner.add_mission('task_name', ...) calls.
+
+    The Lua codebase uses a mission/task system for async dispatch:
+        missioner.add_mission("pts_run", params, delay, queue)
+    Task names map to files by convention: "pts_run" -> tasks/pts_run.lua
+
+    Stores results in ast.warnings as "mission:<task_name>:<line>".
+    """
+    missioner_vars: set[str] = set()
+    for var, mod in binding_map.items():
+        if mod in _MISSIONER_MODULES or "missioner" in mod:
+            missioner_vars.add(var)
+
+    if not missioner_vars:
+        return
+
+    for call_node in _walk_all(root, "function_call"):
+        name_node = call_node.child_by_field_name("name")
+        if not name_node:
+            continue
+
+        # Handle dot access: missioner.add_mission(...)
+        if name_node.type == "dot_index_expression":
+            table_node = name_node.child_by_field_name("table")
+            field_node = name_node.child_by_field_name("field")
+            if not (table_node and field_node):
+                continue
+            table_text = _text(table_node, source)
+            func_name = _text(field_node, source)
+        # Handle colon access: missioner:add_mission(...)
+        elif name_node.type == "method_index_expression":
+            table_node = name_node.child_by_field_name("table")
+            method_node = name_node.child_by_field_name("method")
+            if not (table_node and method_node):
+                continue
+            table_text = _text(table_node, source)
+            func_name = _text(method_node, source)
+        else:
+            continue
+
+        if table_text not in missioner_vars or func_name != "add_mission":
+            continue
+
+        args = _first_child_of_type(call_node, "arguments")
+        if not args or args.named_child_count < 1:
+            continue
+
+        first_arg = args.named_children[0]
+        if first_arg.type == "string":
+            task_name = _get_string_value(first_arg, source)
+            line = call_node.start_point[0] + 1
+            ast.warnings.append(f"mission:{task_name}:{line}")
+
+
+# ---------------------------------------------------------------------------
 # File-based IPC detection
 # ---------------------------------------------------------------------------
 
@@ -1383,7 +1445,10 @@ def parse_lua_file(file_path: str) -> FileAST:
     # 13. File-based IPC detection
     _extract_ipc_calls(root, source, ast)
 
-    # 14. Build qualified names for functions
+    # 14. Mission dispatch detection
+    _extract_mission_dispatches(root, source, ast, binding_map)
+
+    # 15. Build qualified names for functions
     if ast.module_name:
         for func in ast.functions:
             if not func.qualified_name:
