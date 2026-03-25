@@ -20,7 +20,7 @@ Ingesting into Memgraph...
   Go same-package edges: 245
   70939 graph writes
 
-Build completed in 79.4s
+Build completed in 64.7s
 (.venv) il021250@Noams-MacBook-Pro Code-Knowledge-Graph % code-graph -c config.yml validate
 
 ============================================================
@@ -76,16 +76,16 @@ Build completed in 79.4s
 
 --- CALLS ---
   Total calls:         45436
-  Resolved to module:  19575 (43.1%)
+  Resolved to module:  20994 (46.2%)
   pcall-wrapped:       259
   Call resolution:     43.1% (19575/45436)
 
 --- CALL CLASSIFICATION ---
   Builtins:            7601
   External libs:       8
-  Truly unresolved:    18252
-  Resolved (skipped):  19575
-  Effective coverage:  59.8% (resolved + builtin + external)
+  Truly unresolved:    16833
+  Resolved (skipped):  20994
+  Effective coverage:  63.0% (resolved + builtin + external)
   Calls per function:  5.8
 
 --- OPENRESTY ---
@@ -143,7 +143,7 @@ Build completed in 79.4s
   ⚠ Dynamic require at line 10: require(string.format("common.tasks.%s", task_name))
   ... and 56 more
 
-  Report generated in 34.98s
+  Report generated in 22.77s
 
 (.venv) il021250@Noams-MacBook-Pro Code-Knowledge-Graph % code-graph -c config.yml health
 
@@ -213,8 +213,8 @@ Build completed in 79.4s
   Classes:         0
   Export coverage: 765/820 files (93.3%)
   Import resolution: 4953/5276 (93.9%)
-  Call resolution:   14066/28899 (48.7%)
-  Redis accesses:  654
+  Call resolution:   15485/28899 (53.6%)
+  Redis accesses:  1125
   HTTP calls:      17
   Functions w/ outgoing calls: 4653
   Orphan functions (0 calls):  396
@@ -293,7 +293,7 @@ Build completed in 79.4s
   ────────────────────── ──────────── ──────────── ──────────── ──────────── ────────────
   Import resolver                 YES          YES          YES          YES          YES
   Binding tracking                YES          YES          YES          YES           no
-  Call resolution                 58%          27%          49%          42%          13%
+  Call resolution                 58%          27%          54%          42%          13%
   Redis detection                  no           no          YES           no           no
   HTTP detection                  YES           no          YES          YES           no
   Qualified names                 YES          YES           no          YES          YES
@@ -306,12 +306,13 @@ Build completed in 79.4s
   Total functions: 7822
   Total classes:   330
   Import resolution: 5556/6543 (84.9%)
-  Call resolution:   45436 total, 19592 resolved (43.1%)
+  Call resolution:   45436 total, 21011 resolved (46.2%)
+    (CallResolver: 19592, parameter: +1419, base-inherited: +0)
   Call classification:
     Builtins:          7601
     External:          8
-    Truly unresolved:  18235
-  Redis accesses:  654 (direct: 0, via abstractions: +654)
+    Truly unresolved:  16816
+  Redis accesses:  1125 (direct: 0, via abstractions: +1125)
   HTTP calls:      21
 
-  Report generated in 57.03s
+  Report generated in 47.64s
