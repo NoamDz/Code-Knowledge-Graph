@@ -504,6 +504,15 @@ class GraphWriter:
             MERGE (e)-[:SERVES]->(f)
         """, handler_path=handler_path, socket=socket_path, go_file=go_file)
 
+    def upsert_potential_import(self, source_file: str, target_file: str,
+                                prefix: str, line: int):
+        """Create a POTENTIAL_IMPORT edge from dynamic require prefix expansion."""
+        self._run("""
+            MERGE (src:File {path: $source})
+            MERGE (tgt:File {path: $target})
+            MERGE (src)-[:POTENTIAL_IMPORT {prefix: $prefix, line: $line, dynamic: true}]->(tgt)
+        """, source=source_file, target=target_file, prefix=prefix, line=line)
+
     def clear_file(self, file_path: str):
         """Remove all nodes and edges originating from a file."""
         self._run("""

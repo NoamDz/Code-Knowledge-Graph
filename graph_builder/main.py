@@ -210,6 +210,19 @@ def build(ctx):
     if redis_added > 0:
         click.echo(f"  Redis accesses via abstractions: +{redis_added} (total: {redis_after})")
 
+    # Step 4b2: Resolve parameter name calls
+    click.echo("Resolving parameter-name calls...")
+    from .resolvers.parameter_resolver import resolve_parameter_calls
+    param_resolved = resolve_parameter_calls(all_asts)
+    if param_resolved:
+        click.echo(f"  Parameter calls resolved: {param_resolved}")
+
+    # Step 4b3: Resolve base-inherited calls
+    from .resolvers.base_inheritance_resolver import resolve_base_inheritance
+    base_resolved = resolve_base_inheritance(all_asts)
+    if base_resolved:
+        click.echo(f"  Base-inherited calls resolved: {base_resolved}")
+
     # Step 4c: Classify unresolved calls
     click.echo("Classifying unresolved calls...")
     classifier = BuiltinClassifier()
@@ -246,6 +259,12 @@ def build(ctx):
                     resolved_count += 1
                     break
         click.echo(f"  Missions: {len(missions)} dispatches, {resolved_count} resolved to files")
+
+    # Step 4f: Dynamic prefix expansion
+    from .resolvers.dynamic_prefix_resolver import resolve_dynamic_prefixes
+    dynamic_edges = resolve_dynamic_prefixes(all_asts)
+    if dynamic_edges:
+        click.echo(f"  Dynamic prefix expansion: {len(dynamic_edges)} potential imports")
 
     # Step 5: Ingest into Memgraph
     click.echo("Ingesting into Memgraph...")
@@ -315,6 +334,14 @@ def build(ctx):
                             pkg_edges += 1
             if pkg_edges:
                 click.echo(f"  Go same-package edges: {pkg_edges}")
+
+        # Ingest dynamic prefix edges
+        if dynamic_edges:
+            for edge in dynamic_edges:
+                writer.upsert_potential_import(
+                    edge["source_file"], edge["target_file"],
+                    edge["prefix"], edge["line"],
+                )
 
         click.echo(f"  {writer.write_count} graph writes")
         writer.close()
