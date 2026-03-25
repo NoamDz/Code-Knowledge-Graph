@@ -166,6 +166,14 @@ def run_health_report(config: Config) -> str:
     call_resolver.resolve_all()
     call_stats = call_resolver.stats()
 
+    # --- Step 4b: Parameter name resolution ---
+    from graph_builder.resolvers.parameter_resolver import resolve_parameter_calls
+    param_resolved = resolve_parameter_calls(all_asts)
+
+    # --- Step 4c: Base class inheritance resolution ---
+    from graph_builder.resolvers.base_inheritance_resolver import resolve_base_inheritance
+    base_resolved = resolve_base_inheritance(all_asts)
+
     # --- Step 5: Redis abstraction resolution ---
     redis_before = sum(len(ast.redis_accesses) for ast in all_asts.values())
     resolve_redis_abstractions(all_asts)
@@ -391,9 +399,14 @@ def run_health_report(config: Config) -> str:
         pct = total_imports_resolved / total_imports_non_dynamic * 100
         lines.append(f"  Import resolution: {total_imports_resolved}/{total_imports_non_dynamic} ({pct:.1f}%)")
 
-    lines.append(f"  Call resolution:   {call_stats['total_calls']} total, "
-                 f"{call_stats['already_resolved'] + call_stats['newly_resolved']} resolved "
-                 f"({call_stats['resolution_rate']:.1f}%)")
+    total_resolved = call_stats['already_resolved'] + call_stats['newly_resolved'] + param_resolved + base_resolved
+    total_calls = call_stats['total_calls']
+    total_pct = total_resolved / total_calls * 100 if total_calls else 0
+    lines.append(f"  Call resolution:   {total_calls} total, "
+                 f"{total_resolved} resolved ({total_pct:.1f}%)")
+    if param_resolved or base_resolved:
+        lines.append(f"    (CallResolver: {call_stats['already_resolved'] + call_stats['newly_resolved']}, "
+                     f"parameter: +{param_resolved}, base-inherited: +{base_resolved})")
 
     lines.append(f"  Call classification:")
     lines.append(f"    Builtins:          {class_stats['builtin']}")

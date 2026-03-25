@@ -177,6 +177,12 @@ def run_coverage_report(repo_root: str, nginx_conf: str | None = None,
             call_resolver.resolve_all()
             call_stats = call_resolver.stats()
 
+            # Parameter name + base inheritance resolution
+            from graph_builder.resolvers.parameter_resolver import resolve_parameter_calls
+            resolve_parameter_calls(all_asts)
+            from graph_builder.resolvers.base_inheritance_resolver import resolve_base_inheritance
+            resolve_base_inheritance(all_asts)
+
             from graph_builder.resolvers.builtin_classifier import BuiltinClassifier
             classifier = BuiltinClassifier()
             classifier.classify_all(all_asts)
