@@ -167,6 +167,10 @@ class FileAST:
     # Metatable inheritance (Lua-specific)
     metatable_parents: dict[str, str] = field(default_factory=dict)  # child_table → parent_module_string
 
+    # Local variable aliases (Lua-specific): (local_name, rhs_dotted_expression)
+    # e.g., [("format", "string.format"), ("encode", "cjson.encode")]
+    local_aliases: list[tuple[str, str]] = field(default_factory=list)
+
     # Diagnostics
     warnings: list[str] = field(default_factory=list)
 
