@@ -110,17 +110,22 @@ def test_mission_dispatch_detected():
 
 
 def test_mission_resolver():
-    """resolve_missions should extract mission data from AST warnings."""
-    from graph_builder.resolvers.mission_resolver import resolve_missions
+    """resolve_missions should populate ast.mission_dispatches from call scanning."""
+    from graph_builder.resolvers.mission_resolver import resolve_missions, resolve_mission_targets
 
-    ast = parse_lua_file(str(LUA_FIXTURES / "mission_caller.lua"))
-    missions = resolve_missions({"test.lua": ast})
+    fixture_path = str(LUA_FIXTURES / "mission_caller.lua")
+    ast = parse_lua_file(fixture_path)
+    resolve_missions({fixture_path: ast})
 
-    assert len(missions) >= 2
-    task_names = [m["task_name"] for m in missions]
+    assert len(ast.mission_dispatches) >= 2
+    task_names = [m.task_name for m in ast.mission_dispatches]
     assert "pts_run" in task_names
     assert "model_prediction" in task_names
-    assert all(m["target_pattern"].startswith("tasks/") for m in missions)
+
+    # Also test Phase 2: target resolution
+    results = resolve_mission_targets({fixture_path: ast})
+    assert len(results) >= 2
+    assert all(r["target_pattern"].startswith("tasks/") for r in results)
 
 
 # ---------------------------------------------------------------------------
