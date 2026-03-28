@@ -205,6 +205,14 @@ def run_health_report(config: Config) -> str:
     resolve_missions(all_asts)
     mission_results = resolve_mission_targets(all_asts)
 
+    # --- Step 7b: JS ERB render-chain inclusions ---
+    from graph_builder.resolvers.js_erb_resolver import JsErbResolver
+    js_erb_resolver = JsErbResolver(config.repo_root)
+    js_erb_edges = js_erb_resolver.resolve_all(all_asts)
+
+    # --- Step 7c: Ruby dynamic loading edges ---
+    ruby_dynamic_edges = resolvers["ruby"].resolve_dynamic_loading(all_asts)
+
     # --- Collect per-language stats ---
     lang_data: dict[str, dict] = defaultdict(lambda: {
         "files": 0,
@@ -314,6 +322,19 @@ def run_health_report(config: Config) -> str:
 
         # Per-file import count
         d["file_import_counts"][file_path] = len(ast.imports)
+
+    # Fold JS ERB INCLUDES edges into file connectivity tracking
+    for edge in js_erb_edges:
+        src, tgt = edge["source_file"], edge["target_file"]
+        file_imports_from[src].add(tgt)
+        file_imported_by[tgt].add(src)
+
+    # Fold Ruby LOADS_DYNAMICALLY edges into file connectivity tracking
+    for edge in ruby_dynamic_edges:
+        src, tgt = edge["source"], edge["target"]
+        if src != tgt:  # skip class_eval self-reference markers
+            file_imports_from[src].add(tgt)
+            file_imported_by[tgt].add(src)
 
     # --- Format the report ---
 
