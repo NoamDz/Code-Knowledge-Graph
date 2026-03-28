@@ -490,3 +490,156 @@ def test_shared_config_model_prediction_json():
     edges = resolve_shared_configs(all_asts)
     mp_edges = [e for e in edges if e["config"] == "model_prediction_service.json"]
     assert len(mp_edges) == 2  # one Lua, one Go
+
+
+# --- Integration: full pipeline test ---
+
+def test_full_cross_service_pipeline():
+    """End-to-end: parse minimal ASTs, run all resolvers, verify edges."""
+    from graph_builder.resolvers.cross_service_resolver import (
+        resolve_unix_sockets,
+        resolve_shared_redis_patterns,
+        resolve_database_accesses,
+        resolve_aws_service_accesses,
+        resolve_shared_configs,
+    )
+    from graph_builder.resolvers.mission_resolver import resolve_missions, resolve_mission_targets
+
+    # Build a small multi-language AST set
+    lua_handler = FileAST(
+        file_path="src/ato/controllers/pts.lua", language="lua",
+        imports=[
+            ImportRef(module_string="deferrer.missioner.client", line=1,
+                      import_type="require", local_binding="missioner"),
+            ImportRef(module_string="lib.lua.mysql", line=2,
+                      import_type="require", local_binding="db"),
+        ],
+        calls=[
+            CallRef(caller_function="apply",
+                    callee_string="missioner.add_mission", line=107),
+            CallRef(caller_function="check_db",
+                    callee_string="db:query", line=50),
+        ],
+    )
+    task_file = FileAST(
+        file_path="src/ato/tasks/pts_run.lua", language="lua",
+    )
+    python_sqs = FileAST(
+        file_path="src/deferrer/aggregator/clients/sqs.py", language="python",
+        imports=[
+            ImportRef(module_string="boto3", line=1, import_type="import"),
+        ],
+        calls=[
+            CallRef(caller_function="enqueue",
+                    callee_string="self.sqs_client.send_message", line=26),
+        ],
+    )
+    go_kinesis = FileAST(
+        file_path="src/core/model_prediction/server/services/kinesis.go",
+        language="go",
+        calls=[
+            CallRef(caller_function="ProcessEvent",
+                    callee_string="kinesis.UploadEvent", line=62),
+        ],
+    )
+    lua_config = FileAST(
+        file_path="src/lib/lua/config.lua", language="lua",
+    )
+    go_config = FileAST(
+        file_path="src/core/model_prediction/server/config/init.go",
+        language="go",
+    )
+
+    all_asts = {
+        "src/ato/controllers/pts.lua": lua_handler,
+        "src/ato/tasks/pts_run.lua": task_file,
+        "src/deferrer/aggregator/clients/sqs.py": python_sqs,
+        "src/core/model_prediction/server/services/kinesis.go": go_kinesis,
+        "src/lib/lua/config.lua": lua_config,
+        "src/core/model_prediction/server/config/init.go": go_config,
+    }
+
+    # Run all resolvers
+    resolve_database_accesses(all_asts)
+    resolve_aws_service_accesses(all_asts)
+    resolve_missions(all_asts)
+    mission_results = resolve_mission_targets(all_asts)
+    socket_edges = resolve_unix_sockets(all_asts)
+    redis_pattern_edges = resolve_shared_redis_patterns(all_asts)
+    config_edges = resolve_shared_configs(all_asts)
+
+    # Verify MySQL detected
+    assert len(lua_handler.db_accesses) >= 1
+    assert lua_handler.db_accesses[0].db_type == "mysql"
+
+    # Verify SQS detected
+    assert len(python_sqs.aws_accesses) >= 1
+    assert python_sqs.aws_accesses[0].service == "sqs"
+
+    # Verify Kinesis detected
+    assert len(go_kinesis.aws_accesses) >= 1
+    assert go_kinesis.aws_accesses[0].service == "kinesis"
+
+    # Verify missions detected
+    assert len(lua_handler.mission_dispatches) >= 1
+
+    # Verify config edges found (lib/lua/config.lua matches config.json readers)
+    config_files = {e["file"] for e in config_edges}
+    assert "src/lib/lua/config.lua" in config_files
+    assert "src/core/model_prediction/server/config/init.go" in config_files
+
+    # Socket edges may or may not match depending on exact file paths
+    assert isinstance(socket_edges, list)
+    assert isinstance(redis_pattern_edges, list)
+
+
+def test_full_pipeline_ruby_s3_and_kinesis():
+    """End-to-end: Ruby file with both S3 and Kinesis detected."""
+    from graph_builder.resolvers.cross_service_resolver import (
+        resolve_aws_service_accesses,
+    )
+
+    ruby_file = FileAST(
+        file_path="src/core/uploader/uploader.rb", language="ruby",
+        classes=[ClassDef(name="S3Uploader", line=5, line_end=80)],
+        imports=[
+            ImportRef(module_string="aws-sdk-s3", line=1, import_type="require"),
+            ImportRef(module_string="aws-sdk-firehose", line=2, import_type="require"),
+        ],
+        calls=[
+            CallRef(caller_function="upload", callee_string="s3_client.put_object", line=20),
+            CallRef(caller_function="stream", callee_string="firehose.put_record", line=40),
+        ],
+    )
+
+    all_asts = {"src/core/uploader/uploader.rb": ruby_file}
+    resolve_aws_service_accesses(all_asts)
+
+    s3_hits = [a for a in ruby_file.aws_accesses if a.service == "s3"]
+    kinesis_hits = [a for a in ruby_file.aws_accesses if a.service == "kinesis"]
+    assert len(s3_hits) >= 1
+    assert len(kinesis_hits) >= 1
+
+
+def test_full_pipeline_endpoint_linker_with_controller():
+    """End-to-end: controller route registration + HTTP call linking."""
+    from graph_builder.resolvers.endpoint_linker import EndpointLinker
+
+    linker = EndpointLinker()
+    linker.register_controller_routes({
+        "/controllers/pts": "src/ato/controllers/pts.lua",
+    })
+
+    js_caller = FileAST(
+        file_path="src/frontend/app.js", language="javascript",
+        http_calls=[
+            HttpCallRef(url_or_path="/controllers/pts", method="POST",
+                        function="submitPts", line=50),
+        ],
+    )
+    all_asts = {"src/frontend/app.js": js_caller}
+    links = linker.link_all(all_asts)
+
+    assert len(links) >= 1
+    assert links[0]["target_lua_file"] == "src/ato/controllers/pts.lua"
+    assert links[0]["method"] == "POST"
