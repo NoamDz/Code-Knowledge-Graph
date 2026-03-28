@@ -523,8 +523,9 @@ def _detect_ruby_s3(ast: FileAST) -> None:
         if len(parts) != 2:
             continue
         receiver, method = parts
+        # When we have S3 imports/classes, any call using an S3 method is likely S3
         is_s3 = any(ind.lower() in receiver.lower() for ind in _S3_INDICATORS)
-        if is_s3 and method in _S3_METHODS:
+        if method in _S3_METHODS and (is_s3 or has_s3 or has_s3_class):
             ast.aws_accesses.append(AwsServiceAccess(
                 service="s3", operation=method,
                 function=call.caller_function, line=call.line,
