@@ -268,9 +268,17 @@ def run_health_report(config: Config) -> str:
 
         # Connectivity: functions with outgoing calls vs orphans
         all_func_names = {f.name for f in ast.functions}
-        funcs_that_call = callers_with_calls & all_func_names
+        # Normalize caller names: Ruby uses "ClassName#method" but
+        # FunctionDef.name stores bare "method". Strip class prefix.
+        normalized_callers = set()
+        for caller in callers_with_calls:
+            if "#" in caller:
+                normalized_callers.add(caller.split("#")[-1])
+            else:
+                normalized_callers.add(caller)
+        funcs_that_call = normalized_callers & all_func_names
         d["funcs_with_outgoing_calls"] += len(funcs_that_call)
-        d["orphan_functions"] += len(all_func_names - callers_with_calls)
+        d["orphan_functions"] += len(all_func_names - normalized_callers)
 
         # Per-file import count
         d["file_import_counts"][file_path] = len(ast.imports)

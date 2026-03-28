@@ -206,3 +206,49 @@ def test_4d_loading_edges_have_correct_structure():
         assert edge["load_type"] in ("dir_glob", "class_eval"), (
             f"Unexpected load_type: {edge['load_type']}"
         )
+
+
+# ───────────────────────────────────────────────────────────────
+# 4E: Ruby module_name + health metric fix
+# ───────────────────────────────────────────────────────────────
+
+def test_4e_ruby_module_name_set():
+    """Ruby FileAST should have module_name set from the primary class."""
+    ast = parse_ruby_file(str(RB_FIXTURES / "class_with_calls.rb"))
+    assert ast.module_name is not None, "Ruby FileAST.module_name should be set"
+    assert ast.module_name == "DataProcessor", (
+        f"Expected module_name='DataProcessor', got '{ast.module_name}'"
+    )
+
+
+def test_4e_ruby_health_metric_caller_matching():
+    """Health metric should match callers to functions for Ruby."""
+    ast = parse_ruby_file(str(RB_FIXTURES / "class_with_calls.rb"))
+
+    # Simulate what graph_health.py does: collect caller_function names
+    # and intersect with function names
+    callers_with_calls = {call.caller_function for call in ast.calls}
+    all_func_names = {f.name for f in ast.functions}
+
+    # The bug: callers_with_calls has "DataProcessor#process" but
+    # all_func_names has "process". They don't intersect.
+    # After fix: we normalize caller names by stripping class prefix.
+    normalized_callers = set()
+    for caller in callers_with_calls:
+        if "#" in caller:
+            normalized_callers.add(caller.split("#")[-1])
+        else:
+            normalized_callers.add(caller)
+
+    funcs_that_call = normalized_callers & all_func_names
+    assert len(funcs_that_call) >= 1, (
+        f"Expected >=1 functions with outgoing calls. "
+        f"Callers: {callers_with_calls}, Functions: {all_func_names}, "
+        f"Normalized: {normalized_callers}"
+    )
+
+
+def test_4e_ruby_module_name_from_module():
+    """Ruby file with top-level module should use module name."""
+    ast = parse_ruby_file(str(RB_FIXTURES / "nested_modules.rb"))
+    assert ast.module_name is not None, "Module-based file should have module_name"

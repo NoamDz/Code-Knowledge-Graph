@@ -351,6 +351,21 @@ def parse_ruby_file(file_path: str) -> FileAST:
         if cls.name not in ast.exports:
             ast.exports.append(cls.name)
 
+    # --- Set module_name from primary class or module ---
+    # Use the first class name, or first top-level module name, or derive from path
+    if ast.classes:
+        ast.module_name = ast.classes[0].name
+    elif ast.exports:
+        # Use first exported module/class constant
+        for exp in ast.exports:
+            if exp[0].isupper() and "::" not in exp:
+                ast.module_name = exp
+                break
+    if not ast.module_name:
+        # Fallback: derive from file path
+        rel = Path(file_path).stem
+        ast.module_name = rel
+
     return ast
 
 
