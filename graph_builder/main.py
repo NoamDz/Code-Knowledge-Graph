@@ -246,25 +246,31 @@ def build(ctx):
     if endpoint_links:
         click.echo(f"  Linked {len(endpoint_links)} cross-language HTTP calls to endpoints")
 
-    # Step 4e: Mission dispatch resolution
-    from .resolvers.mission_resolver import resolve_missions
-    missions = resolve_missions(all_asts)
+    # Step 4e: Mission dispatch resolution (two-phase)
+    from .resolvers.mission_resolver import resolve_missions, resolve_mission_targets
+    resolve_missions(all_asts)  # Phase 1: populate ast.mission_dispatches
+    missions = resolve_mission_targets(all_asts)  # Phase 2: match to task files
+    total_dispatches = sum(len(ast.mission_dispatches) for ast in all_asts.values())
     if missions:
-        resolved_count = 0
-        for m in missions:
-            pattern = m["target_pattern"]
-            for fp in all_asts:
-                if pattern in fp.replace("\\", "/"):
-                    m["target_file"] = fp
-                    resolved_count += 1
-                    break
-        click.echo(f"  Missions: {len(missions)} dispatches, {resolved_count} resolved to files")
+        resolved_count = sum(1 for m in missions if m["target_file"])
+        click.echo(f"  Missions: {total_dispatches} dispatches, {resolved_count} resolved to files")
 
     # Step 4f: Dynamic prefix expansion
     from .resolvers.dynamic_prefix_resolver import resolve_dynamic_prefixes
     dynamic_edges = resolve_dynamic_prefixes(all_asts)
     if dynamic_edges:
         click.echo(f"  Dynamic prefix expansion: {len(dynamic_edges)} potential imports")
+
+    # Step 4g: Resolve JS ERB render-chain inclusions
+    click.echo("Resolving JS ERB render-chain inclusions...")
+    from .resolvers.js_erb_resolver import JsErbResolver
+    js_erb_resolver = JsErbResolver(config.repo_root)
+    js_erb_edges = js_erb_resolver.resolve_all(all_asts)
+    if js_erb_edges:
+        render_edges = [e for e in js_erb_edges if e["type"] == "render"]
+        collector_edges = [e for e in js_erb_edges if e["type"] == "collector_loop"]
+        click.echo(f"  ERB render includes: {len(render_edges)}, "
+                   f"collector loop includes: {len(collector_edges)}")
 
     # Step 5: Ingest into Memgraph
     click.echo("Ingesting into Memgraph...")
@@ -341,6 +347,22 @@ def build(ctx):
                 writer.upsert_potential_import(
                     edge["source_file"], edge["target_file"],
                     edge["prefix"], edge["line"],
+                )
+
+        # Ingest mission dispatch edges
+        if missions:
+            for m in missions:
+                if m.get("target_file"):
+                    writer.upsert_mission_dispatch(
+                        m["source_file"], m["task_name"],
+                        m["target_file"], m["line"],
+                    )
+
+        # Ingest JS ERB render-chain edges
+        if js_erb_edges:
+            for edge in js_erb_edges:
+                writer.upsert_js_includes(
+                    edge["source_file"], edge["target_file"], edge["type"],
                 )
 
         click.echo(f"  {writer.write_count} graph writes")
