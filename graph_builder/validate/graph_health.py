@@ -186,6 +186,25 @@ def run_health_report(config: Config) -> str:
     classifier.classify_all(all_asts)
     class_stats = classifier.stats()
 
+    # --- Step 7: Cross-service IPC resolution ---
+    from graph_builder.resolvers.cross_service_resolver import (
+        resolve_unix_sockets,
+        resolve_shared_redis_patterns,
+        resolve_database_accesses,
+        resolve_aws_service_accesses,
+        resolve_shared_configs,
+        KNOWN_SOCKET_CONNECTIONS,
+    )
+    from graph_builder.resolvers.mission_resolver import resolve_missions, resolve_mission_targets
+
+    resolve_database_accesses(all_asts)
+    resolve_aws_service_accesses(all_asts)
+    socket_edges = resolve_unix_sockets(all_asts)
+    redis_pattern_edges = resolve_shared_redis_patterns(all_asts)
+    config_edges = resolve_shared_configs(all_asts)
+    resolve_missions(all_asts)
+    mission_results = resolve_mission_targets(all_asts)
+
     # --- Collect per-language stats ---
     lang_data: dict[str, dict] = defaultdict(lambda: {
         "files": 0,
@@ -384,6 +403,41 @@ def run_health_report(config: Config) -> str:
             val = tech_fn(lang, lang_data[lang])
             row += f" {val:>12}"
         lines.append(row)
+
+    # --- Cross-service IPC section ---
+    lines.append("")
+    lines.append(f"  {'─' * 66}")
+    lines.append(f"  CROSS-SERVICE IPC")
+    lines.append(f"  {'─' * 66}")
+
+    total_db = sum(len(ast.db_accesses) for ast in all_asts.values())
+    total_aws = sum(len(ast.aws_accesses) for ast in all_asts.values())
+    total_missions = sum(len(ast.mission_dispatches) for ast in all_asts.values())
+    resolved_missions_count = len([m for m in mission_results if m["target_file"]])
+
+    lines.append(f"  Unix sockets:        {len(socket_edges)} edges ({len(KNOWN_SOCKET_CONNECTIONS)} sockets)")
+    lines.append(f"  Mission dispatches:  {total_missions} detected, {resolved_missions_count} resolved")
+    lines.append(f"  Redis patterns:      {len(redis_pattern_edges)} cross-language edges")
+    lines.append(f"  Database accesses:   {total_db} (MySQL + Cassandra)")
+    lines.append(f"  AWS services:        {total_aws} (SQS + Kinesis + S3)")
+    lines.append(f"  Shared configs:      {len(config_edges)} edges")
+
+    # Breakdown by type
+    db_by_type: dict[str, int] = defaultdict(int)
+    for ast in all_asts.values():
+        for da in ast.db_accesses:
+            db_by_type[da.db_type] += 1
+    if db_by_type:
+        for db_type, count in sorted(db_by_type.items()):
+            lines.append(f"    {db_type}: {count}")
+
+    aws_by_type: dict[str, int] = defaultdict(int)
+    for ast in all_asts.values():
+        for sa in ast.aws_accesses:
+            aws_by_type[sa.service] += 1
+    if aws_by_type:
+        for svc, count in sorted(aws_by_type.items()):
+            lines.append(f"    {svc}: {count}")
 
     # --- Global summary ---
     lines.append("")
