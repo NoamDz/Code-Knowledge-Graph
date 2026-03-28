@@ -16,7 +16,7 @@ from pathlib import Path
 from tree_sitter import Language, Parser
 import tree_sitter_ruby as tsruby
 
-from .base import FileAST, FunctionDef, ImportRef, CallRef, ClassDef
+from .base import FileAST, FunctionDef, ImportRef, CallRef, ClassDef, RedisKeyAccess
 
 RB = Language(tsruby.language())
 
@@ -366,7 +366,96 @@ def parse_ruby_file(file_path: str) -> FileAST:
         rel = Path(file_path).stem
         ast.module_name = rel
 
+    # --- Redis accesses ---
+    _extract_redis_accesses_ruby(root, source, ast)
+
     return ast
+
+
+# --- Ruby Redis detection ---
+
+_RUBY_REDIS_READ_OPS = {"get", "hget", "hgetall", "hmget", "mget", "exists",
+                         "keys", "ttl", "type", "lrange", "smembers",
+                         "sismember", "zrange", "zrangebyscore", "llen",
+                         "scard", "zcard", "get_json"}
+_RUBY_REDIS_WRITE_OPS = {"set", "hset", "hmset", "del", "delete", "expire",
+                          "lpush", "rpush", "sadd", "srem", "zadd", "zrem",
+                          "incr", "decr", "incrby", "decrby", "setex",
+                          "mset", "append", "set_json", "eval", "evalsha",
+                          "publish"}
+_RUBY_ALL_REDIS_OPS = _RUBY_REDIS_READ_OPS | _RUBY_REDIS_WRITE_OPS
+
+
+def _extract_redis_accesses_ruby(root, source: bytes, ast: FileAST):
+    """Detect Redis operations in Ruby code.
+
+    Patterns:
+      - @redis = Redis.new(config)
+      - @redis.get(key), @redis.hset(key, field, value)
+      - redis_var = Redis.new(...); redis_var.set(...)
+    """
+    redis_vars: set[str] = set()
+
+    # Track Redis.new assignments
+    # Pattern: @redis = Redis.new(...) or redis = Redis.new(...)
+    for call_node in _walk_all(root, "assignment"):
+        left = call_node.child_by_field_name("left")
+        right = call_node.child_by_field_name("right")
+        if not (left and right and right.type == "call"):
+            continue
+        method = right.child_by_field_name("method")
+        receiver = right.child_by_field_name("receiver")
+        if method and receiver:
+            if _text(method, source) == "new" and _text(receiver, source) == "Redis":
+                var_name = _text(left, source)
+                redis_vars.add(var_name)
+
+    # Also check for require "redis" as a signal
+    has_redis_import = any(
+        imp.module_string == "redis" for imp in ast.imports
+    )
+    if has_redis_import and not redis_vars:
+        # If redis is imported but no Redis.new found yet,
+        # check for @redis instance var usage
+        redis_vars.add("@redis")
+
+    # Find Redis operation calls
+    for call_node in _walk_all(root, "call"):
+        method = call_node.child_by_field_name("method")
+        receiver = call_node.child_by_field_name("receiver")
+        if not (method and receiver):
+            continue
+
+        receiver_text = _text(receiver, source)
+        method_text = _text(method, source)
+
+        if receiver_text not in redis_vars:
+            continue
+
+        if method_text not in _RUBY_ALL_REDIS_OPS:
+            continue
+
+        access_type = "read" if method_text in _RUBY_REDIS_READ_OPS else "write"
+        enclosing = _find_enclosing(call_node, source)
+
+        # Extract key from first argument if it's a string
+        key_name = "<dynamic>"
+        args = call_node.child_by_field_name("arguments")
+        if args:
+            for child in args.named_children:
+                if child.type == "string":
+                    key_name = _get_string_value(child, source)
+                    break
+                if child.type != "comment":
+                    break
+
+        ast.redis_accesses.append(RedisKeyAccess(
+            key_name=key_name,
+            operation=method_text,
+            access_type=access_type,
+            function=enclosing,
+            line=call_node.start_point[0] + 1,
+        ))
 
 
 def _extract_ruby_params(method_node, source: bytes) -> list[str]:

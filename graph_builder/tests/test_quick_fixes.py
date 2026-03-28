@@ -317,3 +317,45 @@ def test_4f_partial_match_excluded():
     assert len(bad_pairs) == 0, (
         f"GeneralTasksReader should NOT implement Task: {bad_pairs}"
     )
+
+
+# ───────────────────────────────────────────────────────────────
+# 4G: Ruby Redis detection
+# ───────────────────────────────────────────────────────────────
+
+from graph_builder.parsers.base import RedisKeyAccess
+
+
+def test_4g_ruby_redis_detected():
+    """Ruby file with @redis = Redis.new should detect Redis operations."""
+    ast = parse_ruby_file(str(RB_FIXTURES / "redis_helper.rb"))
+    assert len(ast.redis_accesses) >= 4, (
+        f"Expected >=4 Redis accesses, got {len(ast.redis_accesses)}: "
+        f"{[(a.operation, a.access_type) for a in ast.redis_accesses]}"
+    )
+
+
+def test_4g_ruby_redis_read_write():
+    """get/hget should be read, set should be write."""
+    ast = parse_ruby_file(str(RB_FIXTURES / "redis_helper.rb"))
+    ops = {}
+    for a in ast.redis_accesses:
+        ops[a.operation] = a.access_type
+    assert ops.get("get") == "read", f"get should be read, got {ops.get('get')}"
+    assert ops.get("hget") == "read", f"hget should be read, got {ops.get('hget')}"
+    assert ops.get("set") == "write", f"set should be write, got {ops.get('set')}"
+
+
+def test_4g_ruby_redis_eval_is_write():
+    """eval (Lua script execution) should be classified as write."""
+    ast = parse_ruby_file(str(RB_FIXTURES / "redis_helper.rb"))
+    eval_ops = [a for a in ast.redis_accesses if a.operation == "eval"]
+    assert len(eval_ops) >= 1, "eval should be detected"
+    assert eval_ops[0].access_type == "write", "eval should be classified as write"
+
+
+def test_4g_ruby_redis_import_detected():
+    """require 'redis' should appear in imports."""
+    ast = parse_ruby_file(str(RB_FIXTURES / "redis_helper.rb"))
+    redis_imports = [imp for imp in ast.imports if imp.module_string == "redis"]
+    assert len(redis_imports) >= 1, "require 'redis' should be detected"
