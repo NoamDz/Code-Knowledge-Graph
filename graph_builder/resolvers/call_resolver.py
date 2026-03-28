@@ -220,20 +220,19 @@ class CallResolver:
                 # defined as `function M:method()` refers to the module table.
                 # 85% of self:method() calls target methods in the SAME file.
                 if table_name == "self":
-                    # Option A: module has a table_var_name (e.g., _M, M, auth)
-                    if ast.module_info and ast.module_info.table_var_name:
+                    # Check if method_name actually exists in this file's functions
+                    method_in_file = any(
+                        func.name.split(".")[-1].split(":")[-1] == method_name
+                        for func in ast.functions
+                    )
+                    if method_in_file:
                         call.resolved_module = ast.module_name or ast.file_path
                         call.resolved_function = method_name
                         call.resolution_confidence = "self"
                         return True
-                    # Option B: match method_name against functions defined in this file
-                    for func in ast.functions:
-                        func_base = func.name.split(".")[-1].split(":")[-1]
-                        if func_base == method_name:
-                            call.resolved_module = ast.module_name or ast.file_path
-                            call.resolved_function = method_name
-                            call.resolution_confidence = "self"
-                            return True
+                    # Method not found locally — do NOT resolve here.
+                    # Let it fall through so base_inheritance_resolver can
+                    # pick it up if it's an inherited method.
 
                 # Item 9: Type-inferred resolution — if table_name was assigned from
                 # a constructor, resolve method on that class
