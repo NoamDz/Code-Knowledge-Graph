@@ -159,3 +159,50 @@ def test_4c_redis_cluster_import_detected():
     assert any("redis" in m for m in import_modules), (
         f"Expected redis import, got: {import_modules}"
     )
+
+
+# ───────────────────────────────────────────────────────────────
+# 4D: Ruby preprocessor loading model
+# ───────────────────────────────────────────────────────────────
+
+def test_4d_dir_glob_loading_detected():
+    """Dir.glob in preprocessor_loader.rb should produce LOADS_DYNAMICALLY targets."""
+    ast = parse_ruby_file(str(RB_FIXTURES / "preprocessor_loader.rb"))
+    all_asts = {str(RB_FIXTURES / "preprocessor_loader.rb"): ast}
+    resolver = RubyResolver(str(RB_FIXTURES))
+
+    edges = resolver.resolve_dynamic_loading(all_asts)
+    # Should find strip_whitespace.rb and normalize.rb in preprocess/
+    target_names = {Path(e["target"]).name for e in edges}
+    assert "strip_whitespace.rb" in target_names, (
+        f"strip_whitespace.rb not in loading targets: {target_names}"
+    )
+    assert "normalize.rb" in target_names, (
+        f"normalize.rb not in loading targets: {target_names}"
+    )
+
+
+def test_4d_class_eval_loading_detected():
+    """class_eval(IO.read(...)) should be detected as dynamic loading."""
+    ast = parse_ruby_file(str(RB_FIXTURES / "preprocessor_loader.rb"))
+    # Verify that the AST contains a call matching class_eval pattern
+    class_eval_calls = [c for c in ast.calls if "class_eval" in c.callee_string]
+    assert len(class_eval_calls) >= 1, (
+        f"Expected class_eval call, got: {[c.callee_string for c in ast.calls]}"
+    )
+
+
+def test_4d_loading_edges_have_correct_structure():
+    """Loading edges should have source, target, and load_type keys."""
+    ast = parse_ruby_file(str(RB_FIXTURES / "preprocessor_loader.rb"))
+    all_asts = {str(RB_FIXTURES / "preprocessor_loader.rb"): ast}
+    resolver = RubyResolver(str(RB_FIXTURES))
+
+    edges = resolver.resolve_dynamic_loading(all_asts)
+    for edge in edges:
+        assert "source" in edge, f"Edge missing 'source': {edge}"
+        assert "target" in edge, f"Edge missing 'target': {edge}"
+        assert "load_type" in edge, f"Edge missing 'load_type': {edge}"
+        assert edge["load_type"] in ("dir_glob", "class_eval"), (
+            f"Unexpected load_type: {edge['load_type']}"
+        )

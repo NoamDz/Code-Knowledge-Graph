@@ -98,5 +98,55 @@ class RubyResolver:
 
         return None  # external gem
 
+    def resolve_dynamic_loading(self, all_asts: dict) -> list[dict]:
+        """Detect Dir.glob/Dir.entries/class_eval loading patterns and return edges.
+
+        Returns a list of dicts: {"source": file_path, "target": file_path, "load_type": str}
+        """
+        edges: list[dict] = []
+
+        for file_path, ast in all_asts.items():
+            if ast.language != "ruby":
+                continue
+
+            has_dir_glob = False
+            has_class_eval = False
+
+            for call in ast.calls:
+                callee = call.callee_string.lower()
+                # Dir.glob, Dir.entries, Dir["pattern"]
+                if "dir.glob" in callee or "dir.entries" in callee:
+                    has_dir_glob = True
+                # scan_for_* method definitions containing Dir.glob
+                if "scan_for_" in callee:
+                    has_dir_glob = True
+                # class_eval(IO.read(...))
+                if "class_eval" in callee:
+                    has_class_eval = True
+
+            if has_dir_glob:
+                # Find all .rb files in subdirectories relative to this file
+                source_dir = Path(file_path).parent
+                for rb_file in source_dir.rglob("*.rb"):
+                    rb_str = str(rb_file)
+                    if rb_str == file_path:
+                        continue
+                    edges.append({
+                        "source": file_path,
+                        "target": rb_str,
+                        "load_type": "dir_glob",
+                    })
+
+            if has_class_eval:
+                # class_eval(IO.read(entry)) — loading .rb files dynamically
+                # Mark as dynamic loader; specific targets resolved at integration time
+                edges.append({
+                    "source": file_path,
+                    "target": file_path,  # self-reference as marker
+                    "load_type": "class_eval",
+                })
+
+        return edges
+
     def stats(self) -> dict:
         return {"indexed_files": len(self._index)}

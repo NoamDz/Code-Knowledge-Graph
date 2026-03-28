@@ -504,6 +504,15 @@ class GraphWriter:
             MERGE (e)-[:SERVES]->(f)
         """, handler_path=handler_path, socket=socket_path, go_file=go_file)
 
+    def upsert_dynamic_load(self, source_file: str, target_file: str,
+                            load_type: str):
+        """Create a LOADS_DYNAMICALLY edge from source to target file."""
+        self._run("""
+            MERGE (src:File {path: $source})
+            MERGE (tgt:File {path: $target})
+            MERGE (src)-[:LOADS_DYNAMICALLY {load_type: $load_type}]->(tgt)
+        """, source=source_file, target=target_file, load_type=load_type)
+
     def upsert_potential_import(self, source_file: str, target_file: str,
                                 prefix: str, line: int):
         """Create a POTENTIAL_IMPORT edge from dynamic require prefix expansion."""
