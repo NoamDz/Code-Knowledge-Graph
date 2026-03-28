@@ -152,10 +152,11 @@ def parse_go_file(file_path: str) -> FileAST:
             type_name = _text(name_node, source)
             if type_body.type in ("struct_type", "interface_type"):
                 methods = []
+                is_iface = type_body.type == "interface_type"
                 # For interfaces, collect method signatures
-                if type_body.type == "interface_type":
+                if is_iface:
                     for child in type_body.named_children:
-                        if child.type == "method_spec":
+                        if child.type in ("method_spec", "method_elem"):
                             mn = child.child_by_field_name("name")
                             if mn:
                                 methods.append(_text(mn, source))
@@ -167,6 +168,7 @@ def parse_go_file(file_path: str) -> FileAST:
                     line_end=type_spec.end_point[0] + 1,
                     methods=methods,
                     qualified_name=type_qn,
+                    is_interface=is_iface,
                 ))
 
                 if _is_exported(type_name):

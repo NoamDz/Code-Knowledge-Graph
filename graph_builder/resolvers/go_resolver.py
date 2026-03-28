@@ -128,3 +128,39 @@ class GoResolver:
             "indexed_packages": len(self._index),
             "indexed_directories": len(self._dir_files),
         }
+
+
+def resolve_go_interfaces(all_asts: dict) -> list[tuple[str, str]]:
+    """Match Go structs to interfaces using structural typing.
+
+    Compares interface method sets against struct method sets.
+    A struct implements an interface if the interface's method set
+    is a subset of the struct's method set.
+
+    Args:
+        all_asts: file_path -> FileAST mapping
+
+    Returns:
+        List of (struct_name, interface_name) tuples.
+    """
+    interfaces: dict[str, set[str]] = {}   # name -> method names
+    structs: dict[str, set[str]] = {}       # name -> method names
+
+    for file_path, ast in all_asts.items():
+        if ast.language != "go":
+            continue
+        for cls in ast.classes:
+            if cls.is_interface:
+                interfaces[cls.name] = set(cls.methods)
+            else:
+                structs[cls.name] = set(cls.methods)
+
+    implements: list[tuple[str, str]] = []
+    for iface_name, iface_methods in interfaces.items():
+        if not iface_methods:
+            continue  # Skip empty interfaces
+        for struct_name, struct_methods in structs.items():
+            if iface_methods.issubset(struct_methods):
+                implements.append((struct_name, iface_name))
+
+    return implements

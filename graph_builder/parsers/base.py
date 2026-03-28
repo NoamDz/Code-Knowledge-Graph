@@ -127,6 +127,7 @@ class ClassDef:
     mixins: list[str] = field(default_factory=list)  # Ruby include/extend
     methods: list[str] = field(default_factory=list)  # method names defined in this class
     qualified_name: str | None = None  # fully-qualified name (e.g., "module::ClassName")
+    is_interface: bool = False  # Go: interface vs struct
 
 
 @dataclass

@@ -513,6 +513,16 @@ class GraphWriter:
             MERGE (src)-[:LOADS_DYNAMICALLY {load_type: $load_type}]->(tgt)
         """, source=source_file, target=target_file, load_type=load_type)
 
+    def upsert_implements(self, struct_name: str, interface_name: str,
+                          struct_file: str):
+        """Create an IMPLEMENTS edge from a struct to an interface."""
+        self._run("""
+            MERGE (s:Class {name: $struct_name, file: $struct_file})
+            MERGE (i:Class {name: $iface_name})
+            MERGE (s)-[:IMPLEMENTS]->(i)
+        """, struct_name=struct_name, iface_name=interface_name,
+             struct_file=struct_file)
+
     def upsert_potential_import(self, source_file: str, target_file: str,
                                 prefix: str, line: int):
         """Create a POTENTIAL_IMPORT edge from dynamic require prefix expansion."""

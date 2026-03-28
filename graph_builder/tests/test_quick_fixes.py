@@ -252,3 +252,68 @@ def test_4e_ruby_module_name_from_module():
     """Ruby file with top-level module should use module name."""
     ast = parse_ruby_file(str(RB_FIXTURES / "nested_modules.rb"))
     assert ast.module_name is not None, "Module-based file should have module_name"
+
+
+# ───────────────────────────────────────────────────────────────
+# 4F: Go interface IMPLEMENTS edges
+# ───────────────────────────────────────────────────────────────
+
+from graph_builder.resolvers.go_resolver import GoResolver, resolve_go_interfaces
+
+
+def test_4f_interface_flag_set():
+    """Go parser should set is_interface=True for interface type_spec nodes."""
+    ast = parse_go_file(str(GO_FIXTURES / "interfaces.go"))
+    interfaces = [c for c in ast.classes if c.is_interface]
+    structs = [c for c in ast.classes if not c.is_interface]
+
+    interface_names = {c.name for c in interfaces}
+    struct_names = {c.name for c in structs}
+
+    assert "Task" in interface_names, f"Task should be an interface: {interface_names}"
+    assert "TasksReader" in interface_names
+    assert "ModelPredictionTask" in struct_names
+    assert "GeneralTasksReader" in struct_names
+
+
+def test_4f_implements_edges_detected():
+    """Struct implementing all interface methods should produce IMPLEMENTS edge."""
+    ast = parse_go_file(str(GO_FIXTURES / "interfaces.go"))
+    all_asts = {str(GO_FIXTURES / "interfaces.go"): ast}
+    implements = resolve_go_interfaces(all_asts)
+
+    impl_pairs = {(s, i) for s, i in implements}
+    assert ("ModelPredictionTask", "Task") in impl_pairs, (
+        f"ModelPredictionTask should implement Task. Got: {impl_pairs}"
+    )
+    assert ("GeneralTasksReader", "TasksReader") in impl_pairs, (
+        f"GeneralTasksReader should implement TasksReader. Got: {impl_pairs}"
+    )
+
+
+def test_4f_empty_interface_skipped():
+    """Empty interfaces (like Config) should not generate IMPLEMENTS edges."""
+    ast = parse_go_file(str(GO_FIXTURES / "interfaces.go"))
+    all_asts = {str(GO_FIXTURES / "interfaces.go"): ast}
+    implements = resolve_go_interfaces(all_asts)
+
+    # EmptyConfig has no methods, should not match anything
+    empty_impls = [(s, i) for s, i in implements if i == "EmptyConfig"]
+    assert len(empty_impls) == 0, (
+        f"EmptyConfig should not have implementors: {empty_impls}"
+    )
+
+
+def test_4f_partial_match_excluded():
+    """Struct with only some interface methods should NOT produce an edge."""
+    ast = parse_go_file(str(GO_FIXTURES / "interfaces.go"))
+    all_asts = {str(GO_FIXTURES / "interfaces.go"): ast}
+    implements = resolve_go_interfaces(all_asts)
+
+    # GeneralTasksReader has ReadTasks + Validate, but NOT Process/Close
+    # So it should NOT implement Task
+    bad_pairs = [(s, i) for s, i in implements
+                 if s == "GeneralTasksReader" and i == "Task"]
+    assert len(bad_pairs) == 0, (
+        f"GeneralTasksReader should NOT implement Task: {bad_pairs}"
+    )
