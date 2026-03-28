@@ -149,6 +149,15 @@ LANGUAGE_CONFIG = {
     },
 }
 
+# Modules whose function aliases should be classified when used as bare names.
+# Maps module name -> classification ("builtin" or "external").
+_ALIAS_SOURCE_MODULES: dict[str, str] = {}
+# Populate from existing Lua config
+for _prefix in LUA_STDLIB_PREFIXES | LUA_OPENRESTY_PREFIXES:
+    _ALIAS_SOURCE_MODULES[_prefix] = "builtin"
+for _prefix in LUA_EXTERNAL_PREFIXES:
+    _ALIAS_SOURCE_MODULES[_prefix] = "external"
+
 
 class BuiltinClassifier:
     """Classifies unresolved calls as builtin, external, or truly_unresolved."""
@@ -192,6 +201,10 @@ class BuiltinClassifier:
 
         Modifies CallRef.classification in place. Skips calls that already
         have resolved_module set (those were handled by CallResolver).
+
+        For Lua files, builds a per-file alias map from FileAST.local_aliases
+        so that bare calls like `format()` (aliased from `string.format`) are
+        classified as builtin instead of truly_unresolved.
         """
         # Reset counts
         self._counts = {
@@ -202,13 +215,30 @@ class BuiltinClassifier:
         }
 
         for file_path, ast in all_asts.items():
+            # Build per-file alias map for Lua files
+            alias_map: dict[str, str] = {}
+            if ast.language == "lua" and hasattr(ast, "local_aliases"):
+                for local_name, rhs in ast.local_aliases:
+                    # rhs is like "string.format" — extract the module prefix
+                    prefix = rhs.split(".")[0]
+                    if prefix in _ALIAS_SOURCE_MODULES:
+                        alias_map[local_name] = _ALIAS_SOURCE_MODULES[prefix]
+
             for call in ast.calls:
                 if call.resolved_module:
                     # Already resolved by CallResolver — skip
                     self._counts["already_resolved"] += 1
                     continue
 
-                classification = self.classify_call(call.callee_string, ast.language)
+                # Check alias map first (only for bare names without dots/colons)
+                callee = call.callee_string
+                if alias_map and "." not in callee and ":" not in callee and callee in alias_map:
+                    classification = alias_map[callee]
+                    call.classification = classification
+                    self._counts[classification] += 1
+                    continue
+
+                classification = self.classify_call(callee, ast.language)
                 call.classification = classification
                 self._counts[classification] += 1
 

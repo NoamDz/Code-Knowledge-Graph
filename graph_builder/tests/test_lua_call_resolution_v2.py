@@ -125,3 +125,119 @@ class TestLuaParserLocalAliases:
         """The fixture should produce exactly 8 aliases."""
         ast = parse_lua_file(str(FIXTURES / "alias_builtins.lua"))
         assert len(ast.local_aliases) == 8
+
+
+from graph_builder.resolvers.builtin_classifier import BuiltinClassifier
+
+
+# ---------------------------------------------------------------------------
+# Task 3: BuiltinClassifier alias map support
+# ---------------------------------------------------------------------------
+
+class TestBuiltinClassifierAliases:
+    def test_format_alias_classified_as_builtin(self):
+        """format aliased from string.format should be classified as builtin."""
+        call = _make_call("format")
+        ast = _make_ast(
+            calls=[call],
+            local_aliases=[("format", "string.format")],
+        )
+        c = BuiltinClassifier()
+        c.classify_all({"/test/file.lua": ast})
+        assert call.classification == "builtin"
+
+    def test_encode_alias_classified_as_external(self):
+        """encode aliased from cjson.encode should be classified as external."""
+        call = _make_call("encode")
+        ast = _make_ast(
+            calls=[call],
+            local_aliases=[("encode", "cjson.encode")],
+        )
+        c = BuiltinClassifier()
+        c.classify_all({"/test/file.lua": ast})
+        assert call.classification == "external"
+
+    def test_multi_alias_all_classified(self):
+        """Multiple aliases should all be classified correctly."""
+        call_format = _make_call("format")
+        call_insert = _make_call("insert")
+        call_encode = _make_call("encode")
+        ast = _make_ast(
+            calls=[call_format, call_insert, call_encode],
+            local_aliases=[
+                ("format", "string.format"),
+                ("insert", "table.insert"),
+                ("encode", "cjson.encode"),
+            ],
+        )
+        c = BuiltinClassifier()
+        c.classify_all({"/test/file.lua": ast})
+        assert call_format.classification == "builtin"
+        assert call_insert.classification == "builtin"
+        assert call_encode.classification == "external"
+
+    def test_custom_module_alias_stays_unresolved(self):
+        """Alias from unknown module (not stdlib/external) stays truly_unresolved."""
+        call = _make_call("my_func")
+        ast = _make_ast(
+            calls=[call],
+            local_aliases=[("my_func", "some_module.do_thing")],
+        )
+        c = BuiltinClassifier()
+        c.classify_all({"/test/file.lua": ast})
+        assert call.classification == "truly_unresolved"
+
+    def test_no_aliases_no_change(self):
+        """Files without local_aliases should classify normally."""
+        call = _make_call("format")
+        ast = _make_ast(calls=[call])
+        c = BuiltinClassifier()
+        c.classify_all({"/test/file.lua": ast})
+        # "format" is not in LUA_BUILTINS (it's a table method, not a global),
+        # so without alias info it should be truly_unresolved
+        assert call.classification == "truly_unresolved"
+
+    def test_resolved_call_not_reclassified(self):
+        """Calls already resolved should not be touched by alias classification."""
+        call = _make_call("format", resolved_module="my.module")
+        ast = _make_ast(
+            calls=[call],
+            local_aliases=[("format", "string.format")],
+        )
+        c = BuiltinClassifier()
+        c.classify_all({"/test/file.lua": ast})
+        assert call.classification is None
+        assert call.resolved_module == "my.module"
+
+    def test_alias_stats_counted(self):
+        """Alias-classified calls should appear in the correct stats buckets."""
+        call_format = _make_call("format")
+        call_encode = _make_call("encode")
+        call_unknown = _make_call("mystery_func")
+        ast = _make_ast(
+            calls=[call_format, call_encode, call_unknown],
+            local_aliases=[
+                ("format", "string.format"),
+                ("encode", "cjson.encode"),
+            ],
+        )
+        c = BuiltinClassifier()
+        c.classify_all({"/test/file.lua": ast})
+        s = c.stats()
+        assert s["builtin"] == 1
+        assert s["external"] == 1
+        assert s["truly_unresolved"] == 1
+
+    def test_non_lua_files_ignore_aliases(self):
+        """Python files should not use Lua local_aliases."""
+        call = _make_call("format")
+        ast = _make_ast(
+            language="python",
+            calls=[call],
+            local_aliases=[("format", "string.format")],
+        )
+        c = BuiltinClassifier()
+        c.classify_all({"/test/file.py": ast})
+        # Python's "format" is a builtin, so it should be classified as builtin
+        # regardless of local_aliases (which are Lua-only)
+        assert call.classification == "builtin"
