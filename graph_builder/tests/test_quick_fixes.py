@@ -129,3 +129,33 @@ def test_4b_self_resolution_confidence():
     assert len(self_resolved) >= 3, (
         f"Expected >=3 self_python resolutions, got {len(self_resolved)}"
     )
+
+
+# ───────────────────────────────────────────────────────────────
+# 4C: Python RedisCluster factory
+# ───────────────────────────────────────────────────────────────
+
+def test_4c_redis_cluster_detected():
+    """RedisCluster with self.connection should detect Redis ops."""
+    ast = parse_python_file(str(PY_FIXTURES / "redis_cluster_service.py"))
+    assert len(ast.redis_accesses) >= 2, (
+        f"Expected >=2 Redis accesses, got {len(ast.redis_accesses)}: "
+        f"{[(a.operation, a.access_type) for a in ast.redis_accesses]}"
+    )
+
+
+def test_4c_redis_cluster_read_write():
+    """hget should be read, hset should be write."""
+    ast = parse_python_file(str(PY_FIXTURES / "redis_cluster_service.py"))
+    ops = {a.operation: a.access_type for a in ast.redis_accesses}
+    assert ops.get("hget") == "read", f"hget should be read, got {ops.get('hget')}"
+    assert ops.get("hset") == "write", f"hset should be write, got {ops.get('hset')}"
+
+
+def test_4c_redis_cluster_import_detected():
+    """RedisCluster should be registered via try/except import."""
+    ast = parse_python_file(str(PY_FIXTURES / "redis_cluster_service.py"))
+    import_modules = [imp.module_string for imp in ast.imports]
+    assert any("redis" in m for m in import_modules), (
+        f"Expected redis import, got: {import_modules}"
+    )

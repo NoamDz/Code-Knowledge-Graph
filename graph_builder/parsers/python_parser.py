@@ -309,19 +309,34 @@ def _extract_redis_accesses_python(root, source: bytes, ast: FileAST, binding_ma
 
     # Also find variables created by redis.Redis(), redis.StrictRedis(), redis.from_url()
     # Pattern: redis_client = redis.Redis(...)
-    redis_factories = {"Redis", "StrictRedis", "from_url"}
+    redis_factories = {"Redis", "StrictRedis", "from_url", "RedisCluster", "StrictRedisCluster"}
     for node in _walk_all(root, "assignment"):
         left = node.child_by_field_name("left")
         right = node.child_by_field_name("right")
         if not (left and right and right.type == "call"):
             continue
         func = right.child_by_field_name("function")
-        if not func or func.type != "attribute":
+        if not func:
             continue
-        obj = func.child_by_field_name("object")
-        attr = func.child_by_field_name("attribute")
-        if obj and attr and _text(obj, source) in redis_vars and _text(attr, source) in redis_factories:
+
+        is_redis_factory = False
+
+        if func.type == "attribute":
+            # Pattern: redis.Redis(...), redis.StrictRedis(...)
+            obj = func.child_by_field_name("object")
+            attr = func.child_by_field_name("attribute")
+            if obj and attr and _text(obj, source) in redis_vars and _text(attr, source) in redis_factories:
+                is_redis_factory = True
+        elif func.type == "identifier":
+            # Pattern: RedisCluster(...) — direct call after from-import
+            if _text(func, source) in redis_factories:
+                is_redis_factory = True
+
+        if is_redis_factory:
             if left.type == "identifier":
+                redis_vars.add(_text(left, source))
+            elif left.type == "attribute":
+                # Pattern: self.connection = RedisCluster(...)
                 redis_vars.add(_text(left, source))
 
     for node in _walk_all(root, "call"):
