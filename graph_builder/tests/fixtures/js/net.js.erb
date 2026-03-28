@@ -1,0 +1,9 @@
+<%=env["template"].render("base64.js", env)%>
+
+var Net = (function(){
+  function _request(config) {
+    var url = config.url;
+    var method = config.type || "GET";
+  }
+  return { _request: _request };
+})();

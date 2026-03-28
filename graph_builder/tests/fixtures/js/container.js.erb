@@ -1,0 +1,17 @@
+(function(){
+  <%=env["template"].render("utils.js", env)%>
+  <%=env["template"].render("net.js.erb", env)%>
+  <%=env['template'].render("base64.js", env)%>
+
+  var Container = (function(){
+    function _setup() {}
+    function _sendRequest(type, url, params, callback, data, extra) {}
+    return { _setup: _setup, _sendRequest: _sendRequest };
+  })();
+
+  <% env['collectors_rendered'].each { |code| %>
+    <%=code%>
+  <% } %>
+
+  Container._setup();
+})();
