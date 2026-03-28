@@ -427,3 +427,66 @@ def test_shared_config_file_matching():
     files = {e["file"] for e in config_json_edges}
     assert "lib/lua/config.lua" in files
     assert "core/model_prediction/server/config/init.go" in files
+
+
+def test_shared_redis_pattern_creates_edges_with_prefix():
+    """Static Redis pattern config creates writer and reader edges with repo prefix."""
+    ast_writer = FileAST(file_path="repo/src/lib/lua/store.lua", language="lua")
+    ast_reader = FileAST(file_path="repo/src/helpers/store.go", language="go")
+    all_asts = {
+        "repo/src/lib/lua/store.lua": ast_writer,
+        "repo/src/helpers/store.go": ast_reader,
+    }
+    edges = resolve_shared_redis_patterns(all_asts)
+    patterns = {e["pattern"] for e in edges}
+    assert "store:{session_id}" in patterns
+
+
+def test_shared_redis_pattern_unmatched_files_skipped():
+    """Files not in the repo produce no edges."""
+    all_asts = {
+        "totally/different/path.lua": FileAST(
+            file_path="totally/different/path.lua", language="lua",
+        ),
+    }
+    edges = resolve_shared_redis_patterns(all_asts)
+    assert len(edges) == 0
+
+
+def test_shared_config_creates_edges_with_prefix():
+    """Static config map creates READS_CONFIG edges with repo prefix."""
+    ast_lua = FileAST(file_path="repo/src/lib/lua/config.lua", language="lua")
+    ast_go = FileAST(
+        file_path="repo/src/core/model_prediction/server/config/init.go",
+        language="go",
+    )
+    all_asts = {
+        "repo/src/lib/lua/config.lua": ast_lua,
+        "repo/src/core/model_prediction/server/config/init.go": ast_go,
+    }
+    edges = resolve_shared_configs(all_asts)
+    configs = {e["config"] for e in edges}
+    assert "config.json" in configs
+    # Both Lua and Go should have edges
+    files = {e["file"] for e in edges}
+    assert "repo/src/lib/lua/config.lua" in files
+    assert "repo/src/core/model_prediction/server/config/init.go" in files
+
+
+def test_shared_config_model_prediction_json():
+    """model_prediction_service.json has Lua and Go readers."""
+    ast_lua = FileAST(
+        file_path="src/core/model_prediction/client/unix_socket_client.lua",
+        language="lua",
+    )
+    ast_go = FileAST(
+        file_path="src/core/model_prediction/server/config/init.go",
+        language="go",
+    )
+    all_asts = {
+        "src/core/model_prediction/client/unix_socket_client.lua": ast_lua,
+        "src/core/model_prediction/server/config/init.go": ast_go,
+    }
+    edges = resolve_shared_configs(all_asts)
+    mp_edges = [e for e in edges if e["config"] == "model_prediction_service.json"]
+    assert len(mp_edges) == 2  # one Lua, one Go
