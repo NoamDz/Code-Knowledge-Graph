@@ -5,22 +5,28 @@ Parsed 1234 files (0 errors)
   Lua package paths: 29 templates
 Resolving cross-file imports...
 Resolving cross-file calls...
-  Calls: 45436 total, 19592 resolved (43.1%)
+  Calls: 45436 total, 21494 resolved (47.3%)
 Resolving Redis abstraction layers...
-  Redis accesses via abstractions: +672 (total: 672)
+  Redis accesses via abstractions: +694 (total: 712)
 Resolving parameter-name calls...
-  Parameter calls resolved: 1419
+  Parameter calls resolved: 1617
+  Base-inherited calls resolved: 28
 Classifying unresolved calls...
-  Builtins: 7601, External: 8, Truly unresolved: 16816
+  Builtins: 8503, External: 185, Truly unresolved: 13609
 Linking cross-language endpoints...
-  Linked 4 cross-language HTTP calls to endpoints
-  Missions: 4 dispatches, 4 resolved to files
+  Controller routes: 8
+  Linked 8 cross-language HTTP calls to endpoints
+  Missions: 6 dispatches, 4 resolved to files
+Resolving JS ERB render-chain inclusions...
+  ERB render includes: 49, collector loop includes: 56
+Detecting cross-service IPC patterns...
+  Unix sockets: 9, Redis patterns: 8, DB accesses: 54, AWS accesses: 16, Config edges: 5
 Ingesting into Memgraph...
   Ingested 24 nginx locations, 2 proxy_pass, 0 upstreams
   Go same-package edges: 245
-  70939 graph writes
+  71238 graph writes
 
-Build completed in 64.7s
+Build completed in 92.4s
 (.venv) il021250@Noams-MacBook-Pro Code-Knowledge-Graph % code-graph -c config.yml validate
 
 ============================================================
@@ -76,16 +82,16 @@ Build completed in 64.7s
 
 --- CALLS ---
   Total calls:         45436
-  Resolved to module:  20994 (46.2%)
+  Resolved to module:  23139 (50.9%)
   pcall-wrapped:       259
-  Call resolution:     43.1% (19575/45436)
+  Call resolution:     47.3% (21494/45436)
 
 --- CALL CLASSIFICATION ---
-  Builtins:            7601
-  External libs:       8
-  Truly unresolved:    16833
-  Resolved (skipped):  20994
-  Effective coverage:  63.0% (resolved + builtin + external)
+  Builtins:            8503
+  External libs:       185
+  Truly unresolved:    13609
+  Resolved (skipped):  23139
+  Effective coverage:  70.0% (resolved + builtin + external)
   Calls per function:  5.8
 
 --- OPENRESTY ---
@@ -94,12 +100,15 @@ Build completed in 64.7s
   Internal redirects:   0
 
 --- CROSS-SERVICE ---
-  Redis key accesses:   654
-    (direct: 0, via abstractions: +654)
-    lua: 654
-  HTTP client calls:    21
-    lua: 17
+  Redis key accesses:   673
+    (direct: 18, via abstractions: +655)
+    lua: 655
     py: 1
+    rb: 17
+  HTTP client calls:    70
+    lua: 17
+    py: 5
+    js: 45
     go: 3
 
 --- LUA MODULE PATTERNS ---
@@ -143,7 +152,7 @@ Build completed in 64.7s
   ⚠ Dynamic require at line 10: require(string.format("common.tasks.%s", task_name))
   ... and 56 more
 
-  Report generated in 22.77s
+  Report generated in 36.37s
 
 (.venv) il021250@Noams-MacBook-Pro Code-Knowledge-Graph % code-graph -c config.yml health
 
@@ -160,8 +169,8 @@ Build completed in 64.7s
   Classes:         141
   Export coverage: 69/73 files (94.5%)
   Import resolution: 308/512 (60.2%)
-  Call resolution:   2894/4949 (58.5%)
-  Redis accesses:  0
+  Call resolution:   3011/4949 (60.8%)
+  Redis accesses:  39
   HTTP calls:      3
   Functions w/ outgoing calls: 584
   Orphan functions (0 calls):  74
@@ -186,9 +195,9 @@ Build completed in 64.7s
   Classes:         0
   Export coverage: 69/94 files (73.4%)
   Import resolution: 0/3 (0.0%)
-  Call resolution:   984/3709 (26.5%)
+  Call resolution:   987/3709 (26.6%)
   Redis accesses:  0
-  HTTP calls:      0
+  HTTP calls:      45
   Functions w/ outgoing calls: 756
   Orphan functions (0 calls):  148
   Top importers:
@@ -213,8 +222,8 @@ Build completed in 64.7s
   Classes:         0
   Export coverage: 765/820 files (93.3%)
   Import resolution: 4953/5276 (93.9%)
-  Call resolution:   15485/28899 (53.6%)
-  Redis accesses:  1125
+  Call resolution:   17283/28899 (59.8%)
+  Redis accesses:  943
   HTTP calls:      17
   Functions w/ outgoing calls: 4653
   Orphan functions (0 calls):  396
@@ -240,9 +249,9 @@ Build completed in 64.7s
   Classes:         98
   Export coverage: 79/96 files (82.3%)
   Import resolution: 150/409 (36.7%)
-  Call resolution:   918/2198 (41.8%)
-  Redis accesses:  0
-  HTTP calls:      1
+  Call resolution:   926/2198 (42.1%)
+  Redis accesses:  1
+  HTTP calls:      5
   Functions w/ outgoing calls: 42
   Orphan functions (0 calls):  335
   Top importers:
@@ -267,11 +276,11 @@ Build completed in 64.7s
   Classes:         91
   Export coverage: 82/151 files (54.3%)
   Import resolution: 145/343 (42.3%)
-  Call resolution:   730/5681 (12.8%)
-  Redis accesses:  0
+  Call resolution:   932/5681 (16.4%)
+  Redis accesses:  17
   HTTP calls:      0
-  Functions w/ outgoing calls: 0
-  Orphan functions (0 calls):  796
+  Functions w/ outgoing calls: 577
+  Orphan functions (0 calls):  219
   Top importers:
      24 imports  runner.rb
      21 imports  cacher.rb
@@ -293,11 +302,26 @@ Build completed in 64.7s
   ────────────────────── ──────────── ──────────── ──────────── ──────────── ────────────
   Import resolver                 YES          YES          YES          YES          YES
   Binding tracking                YES          YES          YES          YES           no
-  Call resolution                 58%          27%          54%          42%          13%
-  Redis detection                  no           no          YES           no           no
-  HTTP detection                  YES           no          YES          YES           no
+  Call resolution                 61%          27%          60%          42%          16%
+  Redis detection                 YES           no          YES          YES          YES
+  HTTP detection                  YES          YES          YES          YES           no
   Qualified names                 YES          YES           no          YES          YES
   Class/inherit                   YES           no           no          YES          YES
+
+  ──────────────────────────────────────────────────────────────────
+  CROSS-SERVICE IPC
+  ──────────────────────────────────────────────────────────────────
+  Unix sockets:        9 edges (6 sockets)
+  Mission dispatches:  6 detected, 4 resolved
+  Redis patterns:      8 cross-language edges
+  Database accesses:   54 (MySQL + Cassandra)
+  AWS services:        16 (SQS + Kinesis + S3)
+  Shared configs:      5 edges
+    cassandra: 40
+    mysql: 14
+    kinesis: 2
+    s3: 10
+    sqs: 4
 
   ──────────────────────────────────────────────────────────────────
   GLOBAL SUMMARY
@@ -306,13 +330,13 @@ Build completed in 64.7s
   Total functions: 7822
   Total classes:   330
   Import resolution: 5556/6543 (84.9%)
-  Call resolution:   45436 total, 21011 resolved (46.2%)
-    (CallResolver: 19592, parameter: +1419, base-inherited: +0)
+  Call resolution:   45436 total, 23139 resolved (50.9%)
+    (CallResolver: 21494, parameter: +1617, base-inherited: +28)
   Call classification:
-    Builtins:          7601
-    External:          8
-    Truly unresolved:  16816
-  Redis accesses:  1125 (direct: 0, via abstractions: +1125)
-  HTTP calls:      21
+    Builtins:          8503
+    External:          185
+    Truly unresolved:  13609
+  Redis accesses:  1000 (direct: 18, via abstractions: +982)
+  HTTP calls:      70
 
-  Report generated in 47.64s
+  Report generated in 65.29s
