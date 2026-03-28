@@ -466,6 +466,40 @@ class GraphWriter:
                 hc.function, ast.file_path, hc.line,
             )
 
+        # Database accesses
+        for da in ast.db_accesses:
+            if da.db_type == "cassandra":
+                self.upsert_cassandra_access(
+                    da.function, ast.file_path,
+                    da.operation, da.line,
+                )
+            else:
+                self.upsert_db_access(
+                    da.function, ast.file_path,
+                    da.db_type, da.operation, da.table, da.line,
+                )
+
+        # AWS service accesses
+        for sa in ast.aws_accesses:
+            if sa.service == "sqs":
+                access_type = "produce" if sa.operation in (
+                    "send_message", "send_message_batch"
+                ) else "consume"
+                self.upsert_sqs_access(
+                    ast.file_path, sa.resource_id or "<unknown>",
+                    sa.operation, access_type,
+                )
+            elif sa.service == "kinesis":
+                self.upsert_kinesis_access(
+                    ast.file_path, sa.resource_id or "<unknown>",
+                    sa.operation,
+                )
+            elif sa.service == "s3":
+                self.upsert_s3_access(
+                    ast.file_path, sa.resource_id or "<unknown>",
+                    sa.operation,
+                )
+
     def upsert_mission_dispatch(self, source_file: str, task_name: str,
                                  target_file: str | None, line: int):
         """Create a DISPATCHES edge from a file to a task handler file."""
@@ -531,6 +565,96 @@ class GraphWriter:
             MERGE (tgt:File {path: $target})
             MERGE (src)-[:POTENTIAL_IMPORT {prefix: $prefix, line: $line, dynamic: true}]->(tgt)
         """, source=source_file, target=target_file, prefix=prefix, line=line)
+
+    # --- Cross-service IPC upserts ---
+
+    def upsert_unix_socket(self, socket_path: str, protocol: str):
+        """Create a UnixSocket node."""
+        self._run("""
+            MERGE (s:UnixSocket {path: $path})
+            SET s.protocol = $protocol
+        """, path=socket_path, protocol=protocol)
+
+    def upsert_socket_listens(self, file_path: str, socket_path: str):
+        """Create a SOCKET_LISTENS edge from File to UnixSocket."""
+        self._run("""
+            MERGE (f:File {path: $file})
+            MERGE (s:UnixSocket {path: $socket})
+            MERGE (f)-[:SOCKET_LISTENS]->(s)
+        """, file=file_path, socket=socket_path)
+
+    def upsert_socket_connects(self, file_path: str, socket_path: str):
+        """Create a SOCKET_CONNECTS edge from File to UnixSocket."""
+        self._run("""
+            MERGE (f:File {path: $file})
+            MERGE (s:UnixSocket {path: $socket})
+            MERGE (f)-[:SOCKET_CONNECTS]->(s)
+        """, file=file_path, socket=socket_path)
+
+    def upsert_shared_redis_pattern(self, pattern: str, file_path: str,
+                                     access_type: str):
+        """Create SharedRedisPattern node and WRITES/READS_REDIS_PATTERN edge."""
+        edge_type = "WRITES_REDIS_PATTERN" if access_type == "write" else "READS_REDIS_PATTERN"
+        self._run(f"""
+            MERGE (p:SharedRedisPattern {{pattern: $pattern}})
+            MERGE (f:File {{path: $file}})
+            MERGE (f)-[:{edge_type}]->(p)
+        """, pattern=pattern, file=file_path)
+
+    def upsert_db_access(self, function: str, file_path: str,
+                          db_type: str, operation: str,
+                          table: str | None, line: int):
+        """Create a QUERIES_DB edge from Function to a database label."""
+        label = table or f"<{db_type}>"
+        self._run("""
+            MERGE (fn:Function {name: $func, file: $file})
+            MERGE (fn)-[:QUERIES_DB {db_type: $db_type, operation: $op,
+                                      table: $table, line: $line}]->(:DatabaseTable {name: $label})
+        """, func=function, file=file_path, db_type=db_type,
+             op=operation, table=table or "", label=label, line=line)
+
+    def upsert_cassandra_access(self, function: str, file_path: str,
+                                 operation: str, line: int):
+        """Create a QUERIES_CASSANDRA edge."""
+        self._run("""
+            MERGE (fn:Function {name: $func, file: $file})
+            MERGE (fn)-[:QUERIES_CASSANDRA {operation: $op, line: $line}]->(:DatabaseTable {name: 'cassandra'})
+        """, func=function, file=file_path, op=operation, line=line)
+
+    def upsert_sqs_access(self, file_path: str, queue_name: str,
+                           operation: str, access_type: str):
+        """Create SQSQueue node and PRODUCES_TO/CONSUMES_FROM edge."""
+        edge_type = "PRODUCES_TO" if access_type == "produce" else "CONSUMES_FROM"
+        self._run(f"""
+            MERGE (q:SQSQueue {{name: $queue}})
+            MERGE (f:File {{path: $file}})
+            MERGE (f)-[:{edge_type} {{operation: $op}}]->(q)
+        """, queue=queue_name, file=file_path, op=operation)
+
+    def upsert_kinesis_access(self, file_path: str, stream_name: str,
+                               operation: str):
+        """Create KinesisStream node and STREAMS_TO edge."""
+        self._run("""
+            MERGE (k:KinesisStream {name: $stream})
+            MERGE (f:File {path: $file})
+            MERGE (f)-[:STREAMS_TO {operation: $op}]->(k)
+        """, stream=stream_name, file=file_path, op=operation)
+
+    def upsert_s3_access(self, file_path: str, bucket: str, operation: str):
+        """Create ACCESSES_S3 edge from File to S3 bucket identifier."""
+        self._run("""
+            MERGE (f:File {path: $file})
+            MERGE (f)-[:ACCESSES_S3 {operation: $op, bucket: $bucket}]->(:Service {name: $bucket_svc})
+        """, file=file_path, op=operation, bucket=bucket,
+             bucket_svc=f"s3:{bucket}")
+
+    def upsert_config_reads(self, file_path: str, config_name: str):
+        """Create ConfigFile node and READS_CONFIG edge."""
+        self._run("""
+            MERGE (c:ConfigFile {name: $config})
+            MERGE (f:File {path: $file})
+            MERGE (f)-[:READS_CONFIG]->(c)
+        """, config=config_name, file=file_path)
 
     def clear_file(self, file_path: str):
         """Remove all nodes and edges originating from a file."""
