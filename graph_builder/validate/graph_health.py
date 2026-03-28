@@ -269,10 +269,12 @@ def run_health_report(config: Config) -> str:
 
         # Call stats
         callers_with_calls: set[str] = set()
+        resolved_callers: set[str] = set()
         for call in ast.calls:
             d["calls_total"] += 1
             if call.resolved_module:
                 d["calls_resolved"] += 1
+                resolved_callers.add(call.caller_function)
             callers_with_calls.add(call.caller_function)
 
         # Qualified names
@@ -295,9 +297,20 @@ def run_health_report(config: Config) -> str:
                 normalized_callers.add(caller.split("#")[-1])
             else:
                 normalized_callers.add(caller)
-        funcs_that_call = normalized_callers & all_func_names
+        # Also normalize callers that made resolved calls (Python self-resolution
+        # sets resolved_module/resolved_function but caller_function may use
+        # "ClassName.method" form that doesn't match FunctionDef.name).
+        normalized_resolved = set()
+        for caller in resolved_callers:
+            if "#" in caller:
+                normalized_resolved.add(caller.split("#")[-1])
+            elif "." in caller:
+                normalized_resolved.add(caller.rsplit(".", 1)[-1])
+            else:
+                normalized_resolved.add(caller)
+        funcs_that_call = (normalized_callers | normalized_resolved) & all_func_names
         d["funcs_with_outgoing_calls"] += len(funcs_that_call)
-        d["orphan_functions"] += len(all_func_names - normalized_callers)
+        d["orphan_functions"] += len(all_func_names - (normalized_callers | normalized_resolved))
 
         # Per-file import count
         d["file_import_counts"][file_path] = len(ast.imports)
