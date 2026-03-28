@@ -205,6 +205,17 @@ class CallResolver:
                     call.resolution_confidence = "self"
                     return True
 
+                # Python self.method() resolution
+                if table_name == "self" and ast.language == "python":
+                    for func in ast.functions:
+                        if func.name == method_name:
+                            call.resolved_module = ast.module_name or ast.file_path
+                            call.resolved_function = method_name
+                            call.resolution_confidence = "self_python"
+                            return True
+                    # self.attr.method() chains — don't try to resolve
+                    # Fall through to other strategies
+
                 # self:method() resolution — in Lua, `self` inside a method
                 # defined as `function M:method()` refers to the module table.
                 # 85% of self:method() calls target methods in the SAME file.
