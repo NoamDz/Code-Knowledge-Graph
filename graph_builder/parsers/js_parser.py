@@ -26,6 +26,8 @@ RE_ERB_TAG = re.compile(rb'<%[=\-#]?.*?%>', re.DOTALL)
 
 _SEND_REQUEST_CALLEES = {"sendRequest", "Container._sendRequest", "backwardCommunicator._sendRequest"}
 
+_COLLECT_CALLEES = {"Container._collect", "Container._collectImmediateWithType"}
+
 
 def _strip_erb(source: bytes) -> bytes:
     """Strip ERB tags from source, replacing with empty string literals."""
@@ -529,14 +531,16 @@ def _extract_js_http_calls(root, source: bytes, ast: FileAST):
             url_arg = args.named_children[1]
             method = _try_get_string(method_arg, source)
             url = _try_get_string(url_arg, source)
-            if url:
-                enclosing = _find_enclosing(call_node, source)
-                ast.http_calls.append(HttpCallRef(
-                    url_or_path=url,
-                    method=(method or "unknown").upper(),
-                    function=enclosing,
-                    line=call_node.start_point[0] + 1,
-                ))
+            # Use placeholder when URL is dynamic (function call, variable, etc.)
+            if not url:
+                url = "__dynamic_url__"
+            enclosing = _find_enclosing(call_node, source)
+            ast.http_calls.append(HttpCallRef(
+                url_or_path=url,
+                method=(method or "unknown").upper(),
+                function=enclosing,
+                line=call_node.start_point[0] + 1,
+            ))
 
         # Net._request({ type: "POST", url: "/api/assess" }, ...) — custom HTTP wrapper
         elif callee == "Net._request" and args and args.named_child_count >= 1:
@@ -552,6 +556,20 @@ def _extract_js_http_calls(root, source: bytes, ast: FileAST):
                         function=enclosing,
                         line=call_node.start_point[0] + 1,
                     ))
+
+        # Container._collect / Container._collectImmediateWithType — data exfiltration
+        elif callee in _COLLECT_CALLEES and args:
+            enclosing = _find_enclosing(call_node, source)
+            # First arg is typically a data type string
+            data_type = None
+            if args.named_child_count >= 1:
+                data_type = _try_get_string(args.named_children[0], source)
+            ast.http_calls.append(HttpCallRef(
+                url_or_path=data_type or "__collect__",
+                method="COLLECT",
+                function=enclosing,
+                line=call_node.start_point[0] + 1,
+            ))
 
 
 def _try_get_string(node, source: bytes) -> str | None:
