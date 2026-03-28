@@ -30,12 +30,14 @@ _STORE_WRITE = {
     "cache_stores_start", "cache_stores_commit",
 }
 
+# StoreVector actual methods (from store_vector.lua):
+# new, set, set_sparse_safe, setall, get, getall, incr
+# "new" is a constructor and excluded from Redis classification.
 _STORE_VECTOR_READ = {
-    "get", "get_all", "count", "exists",
+    "get", "getall",
 }
 _STORE_VECTOR_WRITE = {
-    "add", "set", "delete", "clear",
-    "zadd", "zrem", "zrangebyscore",
+    "set", "set_sparse_safe", "setall", "incr",
 }
 
 # Hardcoded abstraction defaults for known Redis wrapper modules.
