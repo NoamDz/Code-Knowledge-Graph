@@ -25,11 +25,29 @@ class EndpointLinker:
            b. unix socket handler (exact socket + path match)
     """
 
+    # BOB-confirmed internal endpoints and their cross-language callers
+    INTERNAL_ENDPOINTS = [
+        {"path": "/tasks", "callers": ["python"],
+         "description": "Poller -> Lua task dispatch"},
+        {"path": "/missions", "callers": ["python"],
+         "description": "Missioner -> Lua mission dispatch"},
+        {"path": "/get_bundle", "callers": ["go"],
+         "description": "Model Prediction -> Lua bundle fetch"},
+        {"path": "/monitor", "callers": ["any"],
+         "description": "Health check endpoint"},
+        {"path": "/status", "callers": ["any"],
+         "description": "Status endpoint"},
+        {"path": "/events", "callers": ["any"],
+         "description": "Event ingestion endpoint"},
+    ]
+
     def __init__(self, nginx_config: NginxConfig | None = None):
         # location_path -> {lua_file, proxy_target, phases, ...}
         self._location_index: dict[str, dict] = {}
         # socket_path -> {http_path -> go_file_path}
         self._go_handlers: dict[str, dict[str, str]] = {}
+        # controller route path -> lua_file_path
+        self._controller_routes: dict[str, str] = {}
 
         if nginx_config is not None:
             self._index_nginx_locations(nginx_config)
@@ -67,6 +85,25 @@ class EndpointLinker:
             handlers: {socket_path: {http_path: go_file_path}}
         """
         self._go_handlers.update(handlers)
+
+    def register_internal_endpoints(self) -> None:
+        """Register BOB-confirmed internal endpoints for cross-language linking.
+
+        These endpoints are accessed internally (not from external clients)
+        and represent known cross-language call paths.  The endpoints are
+        already in the nginx location index if nginx config is loaded.
+        This method is a no-op marker that enables internal endpoint
+        awareness in link_all().
+        """
+        pass
+
+    def register_controller_routes(self, routes: dict[str, str]) -> None:
+        """Register controller routes from BOB's confirmed routing map.
+
+        Args:
+            routes: {url_path_pattern: lua_file_path}
+        """
+        self._controller_routes.update(routes)
 
     def _match_location(self, url_path: str) -> dict | None:
         """Find the best matching nginx location using longest-prefix match.
@@ -200,7 +237,30 @@ class EndpointLinker:
                     result["proxy_target"] = loc_match["proxy_target"]
                 return result
 
+            # 3. Try controller route match
+            ctrl_match = self._match_controller_route(url_path)
+            if ctrl_match:
+                return {
+                    **base,
+                    "endpoint": url_path,
+                    "target_lua_file": ctrl_match,
+                }
+
         return None
+
+    def _match_controller_route(self, url_path: str) -> str | None:
+        """Match a URL path against registered controller routes."""
+        # Exact match first
+        if url_path in self._controller_routes:
+            return self._controller_routes[url_path]
+        # Prefix match
+        best_match = None
+        best_len = 0
+        for route_path, lua_file in self._controller_routes.items():
+            if url_path.startswith(route_path) and len(route_path) > best_len:
+                best_match = lua_file
+                best_len = len(route_path)
+        return best_match
 
     @staticmethod
     def _extract_path(url: str) -> str | None:

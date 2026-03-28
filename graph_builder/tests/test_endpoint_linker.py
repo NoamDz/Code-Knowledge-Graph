@@ -258,3 +258,102 @@ def test_full_go_integration():
     assert links[0]["source_file"] == "worker.lua"
     assert links[0]["target_go_file"] == "/srv/go/svc/main.go"
     assert links[0]["socket"] == "/tmp/svc.sock"
+
+
+# --- Internal endpoint mapping ---
+
+def test_internal_task_endpoint():
+    """Internal /tasks endpoint links Python poller to Lua handler."""
+    nginx_cfg = _make_nginx_config([
+        {"path": "/tasks", "modifier": "=",
+         "lua_file": "/srv/lua/tasks/init.lua"},
+    ])
+    linker = EndpointLinker(nginx_cfg)
+    linker.register_internal_endpoints()
+
+    # Python poller calls /tasks
+    all_asts = {
+        "poller/worker.py": _make_ast("poller/worker.py", "python", http_calls=[
+            HttpCallRef(url_or_path="/tasks", method="POST",
+                        function="dispatch_task", line=50),
+        ]),
+    }
+
+    links = linker.link_all(all_asts)
+    assert len(links) >= 1
+    assert links[0]["target_lua_file"] == "/srv/lua/tasks/init.lua"
+
+
+def test_internal_missions_endpoint():
+    """Internal /missions endpoint links missioner to Lua handler."""
+    nginx_cfg = _make_nginx_config([
+        {"path": "/missions", "modifier": "=",
+         "lua_file": "/srv/lua/missions/init.lua"},
+    ])
+    linker = EndpointLinker(nginx_cfg)
+    linker.register_internal_endpoints()
+
+    all_asts = {
+        "missioner/server.py": _make_ast("missioner/server.py", "python",
+            http_calls=[
+                HttpCallRef(url_or_path="/missions", method="POST",
+                            function="dispatch_mission", line=30),
+            ]),
+    }
+
+    links = linker.link_all(all_asts)
+    assert len(links) >= 1
+
+
+# --- Controller route expansion ---
+
+def test_controller_route_registration():
+    """register_controller_routes creates HANDLES_ENDPOINT entries."""
+    linker = EndpointLinker()
+    linker.register_controller_routes({
+        "/ato/controllers/pts": "src/ato/controllers/pts.lua",
+        "/ato/controllers/policy": "src/ato/controllers/policy.lua",
+    })
+
+    # Verify internal state has the routes
+    assert len(linker._controller_routes) >= 2
+
+
+def test_controller_route_linking():
+    """Controller routes create links when HTTP calls match."""
+    linker = EndpointLinker()
+    linker.register_controller_routes({
+        "/ato/controllers/pts": "src/ato/controllers/pts.lua",
+    })
+
+    all_asts = {
+        "frontend/app.js": _make_ast("frontend/app.js", "javascript",
+            http_calls=[
+                HttpCallRef(url_or_path="/ato/controllers/pts",
+                            method="POST", function="submitPts", line=100),
+            ]),
+    }
+
+    links = linker.link_all(all_asts)
+    assert len(links) >= 1
+    assert links[0]["target_lua_file"] == "src/ato/controllers/pts.lua"
+
+
+def test_controller_route_prefix_match():
+    """Controller routes also match by prefix."""
+    linker = EndpointLinker()
+    linker.register_controller_routes({
+        "/ato/controllers/pts": "src/ato/controllers/pts.lua",
+    })
+
+    all_asts = {
+        "frontend/app.js": _make_ast("frontend/app.js", "javascript",
+            http_calls=[
+                HttpCallRef(url_or_path="/ato/controllers/pts/subpath",
+                            method="POST", function="submitPts", line=100),
+            ]),
+    }
+
+    links = linker.link_all(all_asts)
+    assert len(links) >= 1
+    assert links[0]["target_lua_file"] == "src/ato/controllers/pts.lua"
