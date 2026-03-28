@@ -25,7 +25,7 @@ from graph_builder.parsers.nginx_parser import parse_nginx_conf_recursive
 from graph_builder.resolvers.lua_resolver import LuaResolver
 from graph_builder.resolvers.python_resolver import PythonResolver
 from graph_builder.resolvers.call_resolver import CallResolver
-from graph_builder.resolvers.redis_abstraction_resolver import resolve_redis_abstractions
+from graph_builder.resolvers.redis_abstraction_resolver import resolve_redis_abstractions, resolve_go_redis_abstractions
 
 
 PARSERS = {
@@ -177,6 +177,7 @@ def run_health_report(config: Config) -> str:
     # --- Step 5: Redis abstraction resolution ---
     redis_before = sum(len(ast.redis_accesses) for ast in all_asts.values())
     resolve_redis_abstractions(all_asts)
+    resolve_go_redis_abstractions(all_asts)  # 4A: Go Redis wrapper detection
     redis_after = sum(len(ast.redis_accesses) for ast in all_asts.values())
 
     # --- Step 6: Classify unresolved calls ---

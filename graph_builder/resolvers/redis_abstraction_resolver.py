@@ -309,7 +309,7 @@ def resolve_go_redis_abstractions(all_asts):
             is_redis = any(ind in receiver for ind in _GO_REDIS_INDICATORS)
             if not is_redis:
                 receiver_tail = receiver.rsplit(".", 1)[-1]
-                is_redis = receiver_tail.lower() in {"redisclient", "redis", "rdb", "redisconn", "rclient"}
+                is_redis = receiver_tail.lower() in {"redisclient", "redis", "rdb", "redisconn", "rclient", "client"}
             if not is_redis:
                 continue
             if method in _GO_REDIS_READ:
