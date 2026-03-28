@@ -240,8 +240,24 @@ def build(ctx):
             config.nginx_conf, config.nginx_base_path,
         )
     linker = EndpointLinker(nginx_config_obj)
+    linker.register_internal_endpoints()
     go_registry = linker.build_go_handler_registry(all_asts)
     linker.register_go_handlers(go_registry)
+
+    # Auto-discover controller routes from parsed Lua controller files
+    controller_routes = {}
+    for fp in all_asts:
+        fp_norm = fp.replace("\\", "/")
+        if "/controllers/" in fp_norm and fp_norm.endswith(".lua"):
+            parts = fp_norm.split("/controllers/", 1)
+            if len(parts) == 2:
+                ctrl_name = parts[1].replace(".lua", "")
+                route = f"/controllers/{ctrl_name}"
+                controller_routes[route] = fp
+    if controller_routes:
+        linker.register_controller_routes(controller_routes)
+        click.echo(f"  Controller routes: {len(controller_routes)}")
+
     endpoint_links = linker.link_all(all_asts)
     if endpoint_links:
         click.echo(f"  Linked {len(endpoint_links)} cross-language HTTP calls to endpoints")
