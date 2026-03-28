@@ -31,7 +31,7 @@ end
 function _M.collect_actions(user_id, actions)
     local vector = store.collect_vector("user_actions:" .. user_id, 86400, 1000)
     for _, action in ipairs(actions) do
-        vector:add(action)
+        vector:set(action)
     end
 end
 

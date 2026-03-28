@@ -407,7 +407,7 @@ def test_redis_abstraction():
 
     # After resolution, should have redis accesses via abstraction:
     # store.get (read), store.set (write), store.exists (read),
-    # store.hset (write), vector:add (write via store_vector)
+    # store.hset (write), vector:set (write via store_vector)
     assert len(ast.redis_accesses) >= 4, \
         f"Expected >= 4 redis accesses via abstraction, got {len(ast.redis_accesses)}: " \
         f"{[(r.operation, r.access_type) for r in ast.redis_accesses]}"
@@ -429,7 +429,7 @@ def test_redis_abstraction():
     assert all("<via " in r.key_name for r in ast.redis_accesses), \
         f"Expected <via ...> in key names"
 
-    # Check that store_vector method (vector:add) is also detected
+    # Check that store_vector method (vector:set) is also detected
     vector_accesses = [r for r in ast.redis_accesses if "store_vector" in r.key_name]
     assert len(vector_accesses) >= 1, \
         f"Expected >= 1 store_vector access, got {len(vector_accesses)}: " \
