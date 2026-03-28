@@ -118,6 +118,35 @@ class HttpCallRef:
 
 
 @dataclass
+class MissionDispatch:
+    """A missioner.add_mission() or missioner_timer.post() call."""
+    task_name: str                # first string argument: "pts_run"
+    queue: str | None = None      # queue name: "policy", "default"
+    caller_function: str = "<module>"
+    line: int = 0
+
+
+@dataclass
+class DatabaseAccess:
+    """A database query call (MySQL, Cassandra)."""
+    db_type: str                  # "mysql" or "cassandra"
+    operation: str                # "query", "execute", "prepare_statement", etc.
+    table: str | None = None      # extracted table name (best-effort)
+    function: str = "<module>"
+    line: int = 0
+
+
+@dataclass
+class AwsServiceAccess:
+    """An AWS service call (SQS, Kinesis, S3)."""
+    service: str                  # "sqs", "kinesis", "s3"
+    operation: str                # "send_message", "put_record", "upload_file"
+    resource_id: str | None = None  # queue URL, stream name, bucket (when extractable)
+    function: str = "<module>"
+    line: int = 0
+
+
+@dataclass
 class ClassDef:
     """A class definition."""
     name: str
@@ -163,6 +192,15 @@ class FileAST:
     # Cross-service communication
     redis_accesses: list[RedisKeyAccess] = field(default_factory=list)
     http_calls: list[HttpCallRef] = field(default_factory=list)
+
+    # Mission dispatch (Lua missioner system)
+    mission_dispatches: list[MissionDispatch] = field(default_factory=list)
+
+    # Database access (MySQL, Cassandra)
+    db_accesses: list[DatabaseAccess] = field(default_factory=list)
+
+    # AWS service access (SQS, Kinesis, S3)
+    aws_accesses: list[AwsServiceAccess] = field(default_factory=list)
 
     # Metatable inheritance (Lua-specific)
     metatable_parents: dict[str, str] = field(default_factory=dict)  # child_table → parent_module_string

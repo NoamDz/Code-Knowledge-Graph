@@ -20,6 +20,12 @@ INDEX_STATEMENTS = [
     "CREATE INDEX ON :RedisKey(name);",
     "CREATE INDEX ON :SharedFile(path);",
     "CREATE INDEX ON :Service(name);",
+    "CREATE INDEX ON :UnixSocket(path);",
+    "CREATE INDEX ON :SQSQueue(name);",
+    "CREATE INDEX ON :KinesisStream(name);",
+    "CREATE INDEX ON :SharedRedisPattern(pattern);",
+    "CREATE INDEX ON :ConfigFile(name);",
+    "CREATE INDEX ON :DatabaseTable(name);",
 ]
 
 # Node labels and their key properties
@@ -35,6 +41,12 @@ NODE_TYPES = {
     "RedisKey": ["name"],
     "SharedFile": ["path"],
     "Service": ["name", "type", "socket_path"],
+    "UnixSocket": ["path", "protocol"],
+    "SQSQueue": ["name"],
+    "KinesisStream": ["name"],
+    "SharedRedisPattern": ["pattern"],
+    "ConfigFile": ["name"],
+    "DatabaseTable": ["name"],
 }
 
 # Edge types and their properties
@@ -56,6 +68,18 @@ EDGE_TYPES = {
     "REDIS_WRITES": ["operation", "line"],
     "HTTP_CALLS": ["method", "line"],
     "PROXIES_TO": ["upstream_name"],
+    "DISPATCHES": ["task", "line"],
+    "SOCKET_LISTENS": [],
+    "SOCKET_CONNECTS": [],
+    "WRITES_REDIS_PATTERN": [],
+    "READS_REDIS_PATTERN": [],
+    "QUERIES_DB": ["db_type", "operation", "table"],
+    "QUERIES_CASSANDRA": ["operation"],
+    "PRODUCES_TO": ["operation"],
+    "CONSUMES_FROM": ["operation"],
+    "STREAMS_TO": ["operation"],
+    "ACCESSES_S3": ["operation"],
+    "READS_CONFIG": [],
 }
 
 
