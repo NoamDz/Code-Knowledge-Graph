@@ -1385,6 +1385,44 @@ def _extract_metatable_inheritance(root, source: bytes, ast: FileAST, binding_ma
 
 
 # ---------------------------------------------------------------------------
+# Local alias extraction (for builtin classifier)
+# ---------------------------------------------------------------------------
+
+def _extract_local_aliases(root, source: bytes, ast: FileAST):
+    """Extract local variable aliases where RHS is a dotted field access.
+
+    Detects patterns like:
+        local format = string.format
+        local gsub, match = string.gsub, string.match
+        local encode, decode = cjson.encode, cjson.decode
+
+    Populates ast.local_aliases with (local_name, rhs_expression) tuples.
+    Handles multi-assignment by positional matching of names to values.
+    """
+    for decl in _walk_all(root, "variable_declaration"):
+        assign = _first_child_of_type(decl, "assignment_statement")
+        if not assign:
+            continue
+        vl = _first_child_of_type(assign, "variable_list")
+        el = _first_child_of_type(assign, "expression_list")
+        if not (vl and el):
+            continue
+
+        names = [c for c in vl.named_children if c.type == "identifier"]
+        values = list(el.named_children)
+
+        for i, name_node in enumerate(names):
+            if i >= len(values):
+                break
+            val_node = values[i]
+            # Only capture dot_index_expression RHS (field access like string.format)
+            if val_node.type == "dot_index_expression":
+                local_name = _text(name_node, source)
+                rhs_text = _text(val_node, source)
+                ast.local_aliases.append((local_name, rhs_text))
+
+
+# ---------------------------------------------------------------------------
 # Main entry point
 # ---------------------------------------------------------------------------
 
@@ -1448,7 +1486,10 @@ def parse_lua_file(file_path: str) -> FileAST:
     # 14. Mission dispatch detection
     _extract_mission_dispatches(root, source, ast, binding_map)
 
-    # 15. Build qualified names for functions
+    # 15. Local alias extraction (for builtin classifier)
+    _extract_local_aliases(root, source, ast)
+
+    # 16. Build qualified names for functions
     if ast.module_name:
         for func in ast.functions:
             if not func.qualified_name:

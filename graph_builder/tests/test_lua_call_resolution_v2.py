@@ -75,3 +75,53 @@ class TestFileASTLocalAliases:
         assert len(ast.local_aliases) == 2
         assert ast.local_aliases[0] == ("format", "string.format")
         assert ast.local_aliases[1] == ("encode", "cjson.encode")
+
+
+from graph_builder.parsers.lua_parser import parse_lua_file
+
+FIXTURES = Path(__file__).parent / "fixtures" / "lua"
+
+
+# ---------------------------------------------------------------------------
+# Task 2: Lua parser populates local_aliases
+# ---------------------------------------------------------------------------
+
+class TestLuaParserLocalAliases:
+    def test_single_alias(self):
+        """local format = string.format should produce ('format', 'string.format')."""
+        ast = parse_lua_file(str(FIXTURES / "alias_builtins.lua"))
+        alias_dict = dict(ast.local_aliases)
+        assert "format" in alias_dict
+        assert alias_dict["format"] == "string.format"
+
+    def test_multi_assignment(self):
+        """local gsub, match = string.gsub, string.match should produce both aliases."""
+        ast = parse_lua_file(str(FIXTURES / "alias_builtins.lua"))
+        alias_dict = dict(ast.local_aliases)
+        assert alias_dict.get("gsub") == "string.gsub"
+        assert alias_dict.get("match") == "string.match"
+
+    def test_cjson_aliases(self):
+        """local encode, decode = cjson.encode, cjson.decode should produce both aliases."""
+        ast = parse_lua_file(str(FIXTURES / "alias_builtins.lua"))
+        alias_dict = dict(ast.local_aliases)
+        assert alias_dict.get("encode") == "cjson.encode"
+        assert alias_dict.get("decode") == "cjson.decode"
+
+    def test_non_field_access_excluded(self):
+        """local x = func_call() should NOT appear in local_aliases."""
+        ast = parse_lua_file(str(FIXTURES / "alias_builtins.lua"))
+        alias_names = [name for name, _ in ast.local_aliases]
+        # M should not appear (it's assigned from base:new(), not a field access)
+        assert "M" not in alias_names
+
+    def test_custom_module_alias_included(self):
+        """local my_func = some_module.do_thing should appear in local_aliases."""
+        ast = parse_lua_file(str(FIXTURES / "alias_builtins.lua"))
+        alias_dict = dict(ast.local_aliases)
+        assert alias_dict.get("my_func") == "some_module.do_thing"
+
+    def test_total_alias_count(self):
+        """The fixture should produce exactly 8 aliases."""
+        ast = parse_lua_file(str(FIXTURES / "alias_builtins.lua"))
+        assert len(ast.local_aliases) == 8
