@@ -272,6 +272,28 @@ def build(ctx):
         click.echo(f"  ERB render includes: {len(render_edges)}, "
                    f"collector loop includes: {len(collector_edges)}")
 
+    # Step 4h: Cross-service IPC detection
+    click.echo("Detecting cross-service IPC patterns...")
+    from .resolvers.cross_service_resolver import (
+        resolve_unix_sockets,
+        resolve_shared_redis_patterns,
+        resolve_database_accesses,
+        resolve_aws_service_accesses,
+        resolve_shared_configs,
+    )
+    socket_edges = resolve_unix_sockets(all_asts)
+    redis_pattern_edges = resolve_shared_redis_patterns(all_asts)
+    resolve_database_accesses(all_asts)
+    resolve_aws_service_accesses(all_asts)
+    config_edges = resolve_shared_configs(all_asts)
+
+    total_db = sum(len(ast.db_accesses) for ast in all_asts.values())
+    total_aws = sum(len(ast.aws_accesses) for ast in all_asts.values())
+    click.echo(f"  Unix sockets: {len(socket_edges)}, "
+               f"Redis patterns: {len(redis_pattern_edges)}, "
+               f"DB accesses: {total_db}, AWS accesses: {total_aws}, "
+               f"Config edges: {len(config_edges)}")
+
     # Step 5: Ingest into Memgraph
     click.echo("Ingesting into Memgraph...")
     try:
@@ -364,6 +386,22 @@ def build(ctx):
                 writer.upsert_js_includes(
                     edge["source_file"], edge["target_file"], edge["type"],
                 )
+
+        # Ingest cross-service IPC edges
+        for edge in socket_edges:
+            writer.upsert_unix_socket(edge["socket"], edge["protocol"])
+            if edge["role"] == "listener":
+                writer.upsert_socket_listens(edge["file"], edge["socket"])
+            else:
+                writer.upsert_socket_connects(edge["file"], edge["socket"])
+
+        for edge in redis_pattern_edges:
+            writer.upsert_shared_redis_pattern(
+                edge["pattern"], edge["file"], edge["access_type"],
+            )
+
+        for edge in config_edges:
+            writer.upsert_config_reads(edge["file"], edge["config"])
 
         click.echo(f"  {writer.write_count} graph writes")
         writer.close()
