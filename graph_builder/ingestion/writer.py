@@ -566,6 +566,22 @@ class GraphWriter:
             MERGE (src)-[:POTENTIAL_IMPORT {prefix: $prefix, line: $line, dynamic: true}]->(tgt)
         """, source=source_file, target=target_file, prefix=prefix, line=line)
 
+    def upsert_js_includes(self, source_file: str, target_file: str,
+                            include_type: str = "render"):
+        """Create an INCLUDES edge between two File nodes (JS ERB render-chain).
+
+        Args:
+            source_file: The .js.erb file that contains the render() call
+            target_file: The file being rendered/included
+            include_type: "render" for explicit render() calls,
+                          "collector_loop" for collectors_rendered.each
+        """
+        self._run("""
+            MERGE (src:File {path: $source})
+            MERGE (tgt:File {path: $target})
+            MERGE (src)-[:INCLUDES {include_type: $include_type, language: "javascript"}]->(tgt)
+        """, source=source_file, target=target_file, include_type=include_type)
+
     # --- Cross-service IPC upserts ---
 
     def upsert_unix_socket(self, socket_path: str, protocol: str):
