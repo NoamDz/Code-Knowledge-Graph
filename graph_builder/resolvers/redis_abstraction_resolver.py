@@ -292,7 +292,7 @@ _GO_REDIS_WRITE = {
     "Close",
 }
 
-_GO_REDIS_INDICATORS = {"redisClient", "RedisClient", "redis.Client", "rdb", "redisConn"}
+_GO_REDIS_INDICATORS = {"redisClient", "RedisClient", "redis.Client", "rdb", "redisConn", "client"}
 
 
 def resolve_go_redis_abstractions(all_asts):
