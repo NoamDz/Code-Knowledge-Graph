@@ -1,7 +1,7 @@
 # Quick Fixes Bundle — Design Spec
 
 **Date:** 2026-03-26
-**Goal:** Six surgical fixes to existing parsers and resolvers, each 10-50 lines of changes.
+**Goal:** Eight surgical fixes to existing parsers and resolvers, each 10-50 lines of changes.
 
 ---
 
@@ -258,6 +258,85 @@ Create `IMPLEMENTS` edges from struct to interface.
 
 ---
 
+## 4G. Ruby Redis Detection
+
+### Problem
+
+BOB A8 revealed 5 Ruby files use Redis (`redis_helper.rb`, `redis_connection.rb`, `redis_lists.rb`, `redis_lists/event.rb`, `redis_lists/cache_buffer.rb`). Ruby writes bundle data to Redis that Lua reads — a critical cross-language data flow. Zero Ruby Redis detection exists.
+
+### BOB's Findings
+
+```ruby
+# src/core/utils/ruby/redis_helper.rb:13
+@redis = Redis.new(redis_cluster_config)
+
+# Operations:
+def get(key)
+def set(key, value)
+def get_json(key)
+def set_json(key, value)
+def hget(key, sub_key)
+def eval(script, keys, values)
+
+# src/core/generator/clients/redis.rb
+# Stores generated bundles in Redis
+# Keys: "bundles/<origin>/<revision>/<environment>/<key>"
+```
+
+### Solution
+
+Add Ruby Redis detection to the Ruby parser, similar to the Python pattern:
+- Track `require "redis"` and `Redis.new(...)` construction
+- Detect method calls: `get`, `set`, `hget`, `hset`, `get_json`, `set_json`, `eval`, `del`
+- Track `@redis` instance variable assignments (Ruby uses `@` for instance vars)
+- Create REDIS_READS/REDIS_WRITES edges
+
+**Implementation file:** `graph_builder/parsers/ruby_parser.py`
+
+**Expected impact:** ~5-10 Ruby Redis operations detected, enabling cross-language Redis data flow edges.
+
+---
+
+## 4H. Tornado Route Registration Detection
+
+### Problem
+
+BOB D6 revealed Python services define routes via `tornado.web.Application(handlers=[...])` tuples, not decorators. These are detectable route registrations that would create Endpoint→Handler edges for Python services.
+
+### BOB's Findings
+
+```python
+# src/deferrer/missioner/missioner.py:20-26
+application = tornado.web.Application(
+    handlers = [
+        ("/add_mission", AddMissionHandler),
+        ("/monitor", MonitorHandler),
+    ],
+)
+
+# src/core/atlas/app.py:30-36
+return tornado.web.Application([
+    (r"/lookup", IPLookupHandler, {"lookup_service": lookup_service}),
+    (r"/health", HealthHandler),
+])
+```
+
+3 Python services define routes this way: Missioner (2 routes), Atlas (2 routes), Global Data (~3 routes).
+
+### Solution
+
+Add Tornado route detection to the Python parser:
+- Detect `tornado.web.Application(handlers=[...])` or `tornado.web.Application([...])` constructor calls
+- Extract `(path_string, HandlerClass)` tuples from the handlers list
+- Create `Endpoint` nodes for each path and `HANDLES` edges from the handler class file to the endpoint
+- Resolve `HandlerClass` to its file via imports in the same file
+
+**Implementation file:** `graph_builder/parsers/python_parser.py`
+
+**Expected impact:** ~7-10 endpoint-to-handler edges for Python services, connecting them to the nginx endpoint model.
+
+---
+
 ## Testing Strategy
 
 ### Unit Tests per Fix
@@ -268,6 +347,8 @@ Create `IMPLEMENTS` edges from struct to interface.
 4. **4D Ruby loading:** File with `Dir.glob("preprocess/*.rb")` → LOADS_DYNAMICALLY edges to all .rb files in preprocess/
 5. **4E Ruby metrics:** Ruby file with `class Foo; def bar; baz(); end; def baz; end; end` → `bar` has 1 outgoing call
 6. **4F Go interfaces:** Interface `Task` with `Process`, `Close`; struct `ModelPredictionTask` with `Process`, `Close`, `Init` → IMPLEMENTS edge created
+7. **4G Ruby Redis:** File with `@redis = Redis.new(config)` and `@redis.hget(key, field)` → Redis READ detected
+8. **4H Tornado routes:** File with `tornado.web.Application(handlers=[("/lookup", IPLookupHandler)])` → Endpoint node + HANDLES edge
 
 ### Integration Verification
 
@@ -275,9 +356,11 @@ Run `code-graph build` + `code-graph health` and verify:
 - Go Redis: 0 → ~93
 - Python functions with calls: 42 → ~200+
 - Python Redis: 0 → 1
+- Ruby Redis: 0 → ~5-10
 - Ruby orphans: 88 → ~20-25
 - Ruby functions with calls: 0 → ~800+
 - Go IMPLEMENTS edges appear
+- Python Tornado endpoints appear
 
 ---
 
@@ -291,6 +374,8 @@ Run `code-graph build` + `code-graph health` and verify:
 | 4D Ruby loading | 88 orphans | ~20-25 orphans |
 | 4E Ruby metrics | 0 functions w/ calls | ~800+ (display fix) |
 | 4F Go interfaces | 0 IMPLEMENTS edges | ~7-10 edges |
+| 4G Ruby Redis | 0 ops | ~5-10 ops |
+| 4H Tornado routes | 0 Python endpoints | ~7-10 endpoint edges |
 
 ---
 
@@ -308,5 +393,7 @@ Run `code-graph build` + `code-graph health` and verify:
 | `graph_builder/parsers/base.py` | 4F: Add `is_interface: bool = False` to ClassDef |
 | `graph_builder/parsers/go_parser.py` | 4F: Set `is_interface=True` for interface type_spec nodes |
 | `graph_builder/validate/graph_health.py` | 4A: Add `resolve_go_redis_abstractions()` call (currently missing) |
-| `graph_builder/ingestion/writer.py` | 4D, 4F: New edge types |
-| `graph_builder/tests/test_quick_fixes.py` | New test file for all 6 fixes |
+| `graph_builder/parsers/ruby_parser.py` | 4G: Ruby Redis detection (Redis.new, @redis instance var, get/set/hget methods) |
+| `graph_builder/parsers/python_parser.py` | 4H: Tornado route detection (Application(handlers=[...])) |
+| `graph_builder/ingestion/writer.py` | 4D, 4F, 4G, 4H: New edge types |
+| `graph_builder/tests/test_quick_fixes.py` | New test file for all 8 fixes |

@@ -99,9 +99,23 @@ Also note: the existing `redis_abstraction_resolver.py` has `_STORE_VECTOR_READ`
 
 **No aliasing support needed:** BOB confirmed `local av = store.assess_vector` pattern is NOT used in the codebase. Direct chained access is universal.
 
+**Additional PARAMETER_TYPE_MAP entries from BOB C10/C11:**
+
+BOB confirmed ALL actors receive the same signature:
+```lua
+function ActorName:act(bundle, store_object, session_id, old_assess_vector, new_assess_vector)
+```
+
+`store_object` is a Store instance across all ~23 actors. Add to PARAMETER_TYPE_MAP:
+```python
+PARAMETER_TYPE_MAP["store_object"] = "lib.lua.store"
+```
+
+This is a one-line addition that resolves calls like `store_object.assess_vector:get()` and `store_object:hget()` across all actor modules. Expected: +50-100 additional resolved calls.
+
 **Implementation file:** `graph_builder/resolvers/parameter_resolver.py`
 
-**Expected impact:** ~200-300 additional resolved CALLS edges for store vector method calls.
+**Expected impact:** ~250-400 additional resolved CALLS edges (200-300 from store vector chains + 50-100 from `store_object` parameter mapping).
 
 ---
 
@@ -186,8 +200,9 @@ After implementation, run `code-graph build` + `code-graph health` and verify:
 |-----------|------------------------|-----------|
 | Local alias classification | 500-800 reclassified as builtin/external | BuiltinClassifier alias map |
 | Store vector CALLS edges | 200-300 new resolved calls | Parameter resolver chain logic |
-| self:inherited fallback | 100-200 new resolved calls | CallResolver metatable parent lookup |
-| **Total** | **800-1,300 improvement** | **Lua call res → ~57-60%** |
+| `store_object` parameter mapping | 50-100 new resolved calls | PARAMETER_TYPE_MAP addition |
+| self:inherited fallback | 100-200 new resolved calls | Updated base_inheritance_resolver |
+| **Total** | **850-1,400 improvement** | **Lua call res → ~57-60%** |
 
 ---
 

@@ -187,7 +187,7 @@ This is a static configuration approach (not dynamic detection) because cross-la
 
 ### Problem
 
-Three languages access MySQL with zero detection.
+Four languages access MySQL with zero detection.
 
 ### BOB's Findings
 
@@ -196,6 +196,7 @@ Three languages access MySQL with zero detection.
 | Lua | `lib/lua/mysql` (custom) | `db:query(sql)`, `db:execute(sql)` |
 | Python | `mysql.connector` | `cursor.execute(sql)`, `MySQLConnectionPool(...)` |
 | Ruby | `sequel` gem | `Sequel.connect(...)`, `@db.fetch(sql)` |
+| Go | `db.MysqlClient` (custom) | `mysqlClient.Query(...)` — BOB E3 showed `ModelPredictionTask` has `mysqlClient *db.MysqlClient` field |
 
 ### Solution
 
@@ -214,6 +215,11 @@ Add MySQL detection to each language parser, following the same pattern as Redis
 **Ruby MySQL detection:**
 - Track `sequel` gem require and `Sequel.connect()` calls
 - Detect query method calls
+
+**Go MySQL detection:**
+- Track `db.MysqlClient` field access on structs (BOB E3: `mps.mysqlClient`)
+- Detect method calls on the MySQL client
+- The Go parser already extracts these as regular calls; the cross-service resolver needs to recognize `mysqlClient` as a MySQL indicator (similar to Go Redis indicator matching)
 
 **New graph elements:**
 - Edge type: `QUERIES_DB` (Function → string label with table name if extractable)
@@ -251,6 +257,163 @@ Detect Cassandra operations in Lua files:
 
 ---
 
+## 6. SQS Queue Detection
+
+### Problem
+
+SQS is a major IPC mechanism between the aggregator and poller Python services, with zero detection.
+
+### BOB's Findings (F1, F4)
+
+```python
+# src/deferrer/aggregator/aggregator/clients/sqs.py:26
+self.sqs_client.send_message(QueueUrl=self.queue_url, MessageBody=data)
+
+# src/deferrer/poller/poller/utils/clients/sqs.py:84
+session = boto3.session.Session()
+```
+
+Both aggregator (producer) and poller (consumer) use boto3 SQS client. ~10 call sites total.
+
+### Solution
+
+Detect SQS operations in Python files:
+- Track `boto3` imports and `sqs_client` / `sqs` variable bindings
+- Detect `send_message()`, `receive_message()`, `delete_message()` method calls
+- Create `SQSQueue` nodes and `PRODUCES_TO` / `CONSUMES_FROM` edges
+
+**Expected impact:** ~10 edges.
+
+---
+
+## 7. Kinesis Firehose Detection
+
+### Problem
+
+Go and Ruby upload events to Kinesis Firehose with zero detection.
+
+### BOB's Findings (F1, F4)
+
+```go
+// src/core/model_prediction/server/services/kinesis.go:62
+func (kinesis *Kinesis) UploadEvent(eventType string, event []byte, sessionID string, ...)
+```
+
+```ruby
+# src/core/multi_events_uploader/lib/clients/kinesis_firehose.rb:31
+response = client.put_record({delivery_stream_name: stream, record: { data: event }})
+```
+
+### Solution
+
+Detect Kinesis operations:
+- **Go:** Track `*services.Kinesis` fields, detect `UploadEvent`, `PutRecord` calls
+- **Ruby:** Track `Aws::Firehose::Client` construction, detect `put_record` calls
+- Create `KinesisStream` nodes and `STREAMS_TO` edges
+
+**Expected impact:** ~5 edges.
+
+---
+
+## 8. S3 Access Detection
+
+### Problem
+
+Ruby uploads bundles and events to S3 with zero detection.
+
+### BOB's Findings (A8, F4)
+
+```ruby
+# src/core/generator/clients/s3.rb:14
+class S3Client  # Uploads generated bundles to S3
+
+# src/core/multi_events_uploader/lib/clients/s3.rb:13-14
+client = Aws::S3::Client.new(get_client_opts(client_config))
+obj = bucket.object(s3_key)
+obj.upload_file(file_name, server_side_encryption: 'AES256')
+```
+
+3 Ruby files use S3. Go also has S3 access via aws-sdk-go.
+
+### Solution
+
+Detect S3 operations:
+- **Ruby:** Track `Aws::S3::Client`, `Aws::S3::Resource` construction. Detect `put_object`, `get_object`, `upload_file` calls.
+- **Go:** Track S3 client construction and method calls.
+- Create `ACCESSES_S3` edges from files to S3 bucket identifiers.
+
+**Expected impact:** ~10 edges.
+
+---
+
+## 9. Shared Configuration File Edges
+
+### Problem
+
+Multiple languages read the same config files, creating invisible coupling with zero detection.
+
+### BOB's Findings (F6)
+
+| Config | Lua | Python | Go | Ruby |
+|--------|-----|--------|----|------|
+| `config.lua` / config.json | `require("config")` | `Config.load()` | `config.LoadConfig()` | `Utils.load_config` |
+| `features.lua` / features.json | `require("features.lua")` | Via HTTP to Lua | — | `Features.new()` |
+| Bundle JSON (in Redis) | Lua reads | — | — | Ruby writes |
+| model_prediction_service.json | Lua client reads | — | Go service reads | — |
+
+### Solution
+
+Use a static configuration approach (like shared Redis keys):
+
+```python
+SHARED_CONFIG_FILES = [
+    {"config": "config.json", "readers": {
+        "lua": ["lib/lua/config.lua"],
+        "python": ["deferrer/*/lib/config.py"],
+        "go": ["core/model_prediction/server/config/init.go"],
+        "ruby": ["core/utils/ruby/utils.rb"],
+    }},
+    {"config": "model_prediction_service.json", "readers": {
+        "lua": ["core/model_prediction/client/unix_socket_client.lua"],
+        "go": ["core/model_prediction/server/config/init.go"],
+    }},
+]
+```
+
+Create `ConfigFile` nodes and `READS_CONFIG` edges from files to shared configs.
+
+**Expected impact:** ~10 edges.
+
+---
+
+## 10. Nginx Endpoint Linker Expansion
+
+### Problem
+
+BOB documented all 23 nginx locations but we only link 4 cross-language endpoints. The existing `endpoint_linker.py` uses longest-prefix matching on nginx locations, but the dynamic routing through `@router` → `main.lua` → controller dispatch isn't followed.
+
+### BOB's Findings (F9)
+
+Key locations with Lua handlers:
+- `= /tasks` — internal from Poller (Python → Lua cross-language)
+- `= /missions` — internal from Missioner
+- `= /get_bundle` — internal from Model Prediction (Go → Lua)
+- `~ ^/(?<module>.+)/controllers/...` — dynamic router → 6 controllers
+- `= /monitor`, `= /status` — health checks
+- `= /events` — event endpoint
+
+### Solution
+
+Extend the endpoint linker with BOB's confirmed routing data:
+
+1. **Static internal endpoint mapping:** For internal-only locations (`/tasks`, `/missions`, `/get_bundle`), create direct cross-language endpoint links from the known callers (Python poller, Go model_prediction) to the Lua handler files.
+
+2. **Controller route expansion:** The `@router` catch-all dispatches to `router/main.lua` which routes to controllers. Use BOB's confirmed controller list to create `HANDLES_ENDPOINT` edges from controller files to endpoint patterns.
+
+**Expected impact:** +10-16 additional endpoint links (4 → ~20).
+
+---
+
 ## Testing Strategy
 
 ### Unit Tests
@@ -272,13 +435,31 @@ Detect Cassandra operations in Lua files:
 4. **MySQL detection:**
    - Lua `db:query("SELECT * FROM users")` → QUERIES_DB edge with table "users"
    - Python `cursor.execute("INSERT INTO alerts ...")` → QUERIES_DB edge
+   - Go `mps.mysqlClient.Query(...)` → QUERIES_DB edge
+
+5. **SQS detection:**
+   - Python `sqs_client.send_message(QueueUrl=url, ...)` → PRODUCES_TO edge
+   - Python `sqs.receive_message(...)` → CONSUMES_FROM edge
+
+6. **Kinesis/S3 detection:**
+   - Go `kinesis.UploadEvent(...)` → STREAMS_TO edge
+   - Ruby `obj.upload_file(...)` → ACCESSES_S3 edge
+
+7. **Config file edges:**
+   - Static config map resolves file paths correctly
+   - Multiple languages reading same config → READS_CONFIG edges
+
+8. **Endpoint linker expansion:**
+   - Internal endpoints (/tasks, /missions, /get_bundle) create cross-language links
+   - Controller routes create HANDLES_ENDPOINT edges
 
 ### Integration Verification
 
 After implementation, run `code-graph health` and verify:
-- Cross-service section shows Unix socket edges
+- Cross-service section shows Unix socket, SQS, Kinesis, S3 edges
 - Mission dispatches increase from 4 to 50+
-- New Redis pattern, MySQL, and Cassandra edges appear in graph writes
+- New Redis pattern, MySQL, Cassandra, and config edges appear in graph writes
+- Endpoint links increase from 4 to ~20
 
 ---
 
@@ -289,9 +470,14 @@ After implementation, run `code-graph health` and verify:
 | Unix socket mapping | ~15 | SOCKET_CONNECTS/LISTENS |
 | Mission dispatch expansion | +46-70 | DISPATCHES |
 | Shared Redis key patterns | ~20-30 | WRITES/READS_REDIS_PATTERN |
-| MySQL detection | ~15-20 | QUERIES_DB |
+| MySQL detection (Lua/Python/Ruby/Go) | ~20-25 | QUERIES_DB |
 | Cassandra detection | ~10 | QUERIES_CASSANDRA |
-| **Total** | **~106-145** | **Cross-service** |
+| SQS queue detection | ~10 | PRODUCES_TO/CONSUMES_FROM |
+| Kinesis Firehose detection | ~5 | STREAMS_TO |
+| S3 access detection | ~10 | ACCESSES_S3 |
+| Shared config file edges | ~10 | READS_CONFIG |
+| Nginx endpoint linker expansion | +10-16 | HANDLES_ENDPOINT |
+| **Total** | **~152-211** | **Cross-service** |
 
 ---
 
@@ -299,12 +485,14 @@ After implementation, run `code-graph health` and verify:
 
 | File | Change |
 |------|--------|
-| `graph_builder/resolvers/cross_service_resolver.py` | **New** — Unix socket, MySQL, Cassandra detection |
+| `graph_builder/resolvers/cross_service_resolver.py` | **New** — Unix socket, MySQL, Cassandra, SQS, Kinesis, S3, shared config detection |
 | `graph_builder/resolvers/mission_resolver.py` | Expand detection from warnings to call scanning |
+| `graph_builder/resolvers/endpoint_linker.py` | Add internal endpoint mapping and controller route expansion |
 | `graph_builder/parsers/lua_parser.py` | Add MySQL/Cassandra call pattern extraction |
-| `graph_builder/ingestion/writer.py` | Add upsert methods for new node/edge types |
+| `graph_builder/parsers/python_parser.py` | Add SQS detection patterns (boto3 sqs_client) |
+| `graph_builder/parsers/go_parser.py` | Add MySQL indicator detection (mysqlClient) |
+| `graph_builder/ingestion/writer.py` | Add upsert methods for new node/edge types (SQSQueue, KinesisStream, ConfigFile, ACCESSES_S3, etc.) |
 | `graph_builder/main.py` | Wire cross-service resolver into pipeline |
-| `graph_builder/validate/graph_health.py` | Report new edge types in cross-service section |
-| `graph_builder/parsers/base.py` | Add dataclasses for UnixSocket, SharedRedisPattern if needed to carry data from resolvers to writer |
-| `graph_builder/validate/graph_health.py` | Add Go Redis call (`resolve_go_redis_abstractions`) — currently missing. Report new cross-service edge types |
+| `graph_builder/parsers/base.py` | Add dataclasses for new node types if needed |
+| `graph_builder/validate/graph_health.py` | Add Go Redis call (`resolve_go_redis_abstractions`). Report all new cross-service edge types |
 | `graph_builder/tests/test_cross_service.py` | New test file |
