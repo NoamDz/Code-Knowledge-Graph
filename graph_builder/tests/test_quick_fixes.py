@@ -359,3 +359,48 @@ def test_4g_ruby_redis_import_detected():
     ast = parse_ruby_file(str(RB_FIXTURES / "redis_helper.rb"))
     redis_imports = [imp for imp in ast.imports if imp.module_string == "redis"]
     assert len(redis_imports) >= 1, "require 'redis' should be detected"
+
+
+# ───────────────────────────────────────────────────────────────
+# 4H: Tornado route registration
+# ───────────────────────────────────────────────────────────────
+
+from graph_builder.parsers.base import HttpCallRef
+
+
+def test_4h_tornado_routes_detected():
+    """tornado.web.Application handler tuples should produce endpoint entries."""
+    ast = parse_python_file(str(PY_FIXTURES / "tornado_app.py"))
+
+    # Tornado routes are stored as HttpCallRef with method="HANDLER"
+    # to distinguish from outbound HTTP calls
+    endpoints = [h for h in ast.http_calls if h.method == "HANDLER"]
+    paths = {e.url_or_path for e in endpoints}
+
+    assert "/add_mission" in paths, f"/add_mission not found in {paths}"
+    assert "/monitor" in paths, f"/monitor not found in {paths}"
+    assert "/health" in paths, f"/health not found in {paths}"
+
+
+def test_4h_tornado_handler_classes_recorded():
+    """Each route should record the handler class name."""
+    ast = parse_python_file(str(PY_FIXTURES / "tornado_app.py"))
+
+    endpoints = [h for h in ast.http_calls if h.method == "HANDLER"]
+    handler_map = {e.url_or_path: e.function for e in endpoints}
+
+    assert handler_map.get("/add_mission") == "AddMissionHandler", (
+        f"Expected AddMissionHandler, got {handler_map.get('/add_mission')}"
+    )
+    assert handler_map.get("/monitor") == "MonitorHandler"
+    assert handler_map.get("/health") == "HealthHandler"
+
+
+def test_4h_at_least_three_routes():
+    """Should detect all 3 routes across both Application() patterns."""
+    ast = parse_python_file(str(PY_FIXTURES / "tornado_app.py"))
+    endpoints = [h for h in ast.http_calls if h.method == "HANDLER"]
+    assert len(endpoints) >= 3, (
+        f"Expected >=3 Tornado routes, got {len(endpoints)}: "
+        f"{[(e.url_or_path, e.function) for e in endpoints]}"
+    )

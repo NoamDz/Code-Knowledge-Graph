@@ -272,6 +272,9 @@ def parse_python_file(file_path: str) -> FileAST:
     # --- HTTP calls ---
     _extract_http_calls_python(root, source, ast, binding_map)
 
+    # --- Tornado route detection ---
+    _extract_tornado_routes_python(root, source, ast)
+
     return ast
 
 
@@ -381,6 +384,74 @@ def _extract_redis_accesses_python(root, source: bytes, ast: FileAST, binding_ma
             function=enclosing,
             line=line,
         ))
+
+
+# --- Tornado route detection ---
+
+
+def _extract_tornado_routes_python(root, source: bytes, ast: FileAST):
+    """Detect Tornado route registrations.
+
+    Patterns:
+      tornado.web.Application(handlers=[(path, Handler), ...])
+      tornado.web.Application([(path, Handler), ...])
+    """
+    for call_node in _walk_all(root, "call"):
+        func = call_node.child_by_field_name("function")
+        if not func:
+            continue
+        callee = _text(func, source)
+        if "Application" not in callee:
+            continue
+        # Match tornado.web.Application or just Application
+        if callee not in ("tornado.web.Application", "Application"):
+            continue
+
+        args = call_node.child_by_field_name("arguments")
+        if not args:
+            continue
+
+        # Find the handlers list -- either as keyword arg or positional
+        handler_lists = []
+        for arg in args.named_children:
+            # keyword_argument: handlers=[...]
+            if arg.type == "keyword_argument":
+                key = arg.child_by_field_name("name")
+                val = arg.child_by_field_name("value")
+                if key and _text(key, source) == "handlers" and val and val.type == "list":
+                    handler_lists.append(val)
+            # Positional list: Application([...])
+            elif arg.type == "list":
+                handler_lists.append(arg)
+
+        for handler_list in handler_lists:
+            for child in handler_list.named_children:
+                if child.type != "tuple":
+                    continue
+                # Extract (path_string, HandlerClass, ...) tuple
+                elements = child.named_children
+                if len(elements) < 2:
+                    continue
+                path_node = elements[0]
+                handler_node = elements[1]
+
+                # Path should be a string
+                if path_node.type != "string":
+                    continue
+                path = _text(path_node, source).strip("\"'")
+                # Remove regex prefix r"..."
+                if path.startswith("r"):
+                    path = path[1:].strip("\"'")
+
+                # Handler should be an identifier (class name)
+                handler_name = _text(handler_node, source)
+
+                ast.http_calls.append(HttpCallRef(
+                    url_or_path=path,
+                    method="HANDLER",
+                    function=handler_name,
+                    line=child.start_point[0] + 1,
+                ))
 
 
 # --- HTTP call detection ---
