@@ -4,7 +4,7 @@ local base = require_version("common.base.lua.handler")
 local M = base:new()
 
 function M:apply(input, bundle, web)
-    if not self:validate_input(input) then
+    if not self:validate(input) then
         return self:user_error("Invalid input")
     end
     local result = self:process(input, web)

@@ -166,7 +166,7 @@ def test_no_dynamic_prefix_no_edges():
 
 
 def test_inherited_method_resolved():
-    """self:validate_input() in child_handler should resolve to common.base.lua.handler."""
+    """self:validate() in child_handler should resolve to common.base.lua.handler."""
     ast = parse_lua_file(str(FIXTURES / "child_handler.lua"))
     all_asts = {"child_handler.lua": ast}
     count = resolve_base_inheritance(all_asts)
@@ -174,11 +174,11 @@ def test_inherited_method_resolved():
 
     vi_calls = [
         c for c in ast.calls
-        if c.callee_string == "self:validate_input"
+        if c.callee_string == "self:validate"
     ]
     assert len(vi_calls) == 1
     assert vi_calls[0].resolved_module == "common.base.lua.handler"
-    assert vi_calls[0].resolved_function == "validate_input"
+    assert vi_calls[0].resolved_function == "validate"
     assert vi_calls[0].resolution_confidence == "base_inherited"
 
 

@@ -17,16 +17,30 @@ from __future__ import annotations
 from graph_builder.parsers.base import FileAST
 
 
-# Known base modules and their inheritable methods
+# Known base modules and their inheritable methods.
+# Updated 2026-03-28 from BOB investigation of actual base module source files.
 BASE_MODULE_METHODS: dict[str, set[str]] = {
     "common.base.lua.handler": {
-        "validate_input", "handle_error", "log_error", "user_error", "system_error",
+        "validate", "response_map", "add_handler_error",
+        "check_mark_store_save_async", "user_error", "parse_postdata",
+        "dispatch", "handle_web_request", "handle_ep_request",
+        "handle_pmc", "handle_tma", "handle_internal_request",
+        "add_error_metrics", "parse_api_version_data",
+        "verify_store_size_limit", "add_general_handler_error",
+        "create_handler", "sanitize_error_output", "user_error_format",
+        "create_handler_event",
     },
     "common.base.lua.assessor": {
-        "validate_bundle", "get_feature_flag", "log_assessment",
+        "assess",
     },
     "common.base.lua.collector": {
-        "store_data",
+        "trigger", "collect", "get_trigger_collector",
+        "trigger_web_request", "get_collect_collector",
+        "decrypt_collect_data", "collect_web_request",
+        "fake_collect_web_request", "get_store",
+    },
+    "common.base.lua.actor": {
+        "act",
     },
 }
 
