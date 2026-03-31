@@ -125,7 +125,8 @@ class GraphWriter:
                 fn.is_method = row.is_method,
                 fn.params = row.params,
                 fn.qualified_name = row.qualified_name,
-                fn.decorators = row.decorators
+                fn.decorators = row.decorators,
+                fn.is_coroutine = row.is_coroutine
         """,
         "Class": """
             UNWIND $batch AS row
@@ -166,13 +167,16 @@ class GraphWriter:
             MERGE (b:Function {name: row.to_func, file: row.to_file})
             MERGE (a)-[:CALLS {line: row.line, is_pcall: row.is_pcall,
                                resolution_confidence: row.resolution_confidence,
-                               classification: row.classification}]->(b)
+                               classification: row.classification,
+                               is_goroutine: row.is_goroutine,
+                               is_deferred: row.is_deferred}]->(b)
         """,
         "CALLS_unresolved": """
             UNWIND $batch AS row
             MERGE (a:Function {name: row.from_func, file: row.from_file})
             MERGE (b:Function {name: row.to_func})
-            MERGE (a)-[:CALLS {line: row.line, is_pcall: row.is_pcall, classification: row.classification}]->(b)
+            MERGE (a)-[:CALLS {line: row.line, is_pcall: row.is_pcall, classification: row.classification,
+                               is_goroutine: row.is_goroutine, is_deferred: row.is_deferred}]->(b)
         """,
     }
 
@@ -198,6 +202,7 @@ class GraphWriter:
             "params": func.params,
             "qualified_name": func.qualified_name,
             "decorators": func.decorators,
+            "is_coroutine": func.is_coroutine,
         }
         # Buffer the Function node
         self._buffer_node("Function", params)
@@ -270,7 +275,9 @@ class GraphWriter:
                     to_func: str, to_file: str | None = None,
                     line: int = 0, is_pcall: bool = False,
                     classification: str | None = None,
-                    resolution_confidence: str | None = None):
+                    resolution_confidence: str | None = None,
+                    is_goroutine: bool = False,
+                    is_deferred: bool = False):
         if to_file:
             self._buffer_edge("CALLS_resolved", {
                 "from_func": from_func,
@@ -281,6 +288,8 @@ class GraphWriter:
                 "is_pcall": is_pcall,
                 "resolution_confidence": resolution_confidence,
                 "classification": classification,
+                "is_goroutine": is_goroutine,
+                "is_deferred": is_deferred,
             })
         else:
             self._buffer_edge("CALLS_unresolved", {
@@ -290,6 +299,8 @@ class GraphWriter:
                 "line": line,
                 "is_pcall": is_pcall,
                 "classification": classification,
+                "is_goroutine": is_goroutine,
+                "is_deferred": is_deferred,
             })
 
     # --- OpenResty-specific (kept as direct _run() — low volume, complex logic) ---
@@ -329,6 +340,20 @@ class GraphWriter:
             MERGE (fn)-[:USES_SHARED {operation: $op, line: $line}]->(d)
         """, dict=dict_name, op=operation, func=function,
              file=file_path, line=line)
+
+    def upsert_channel_access(self, channel_name: str, operation: str,
+                               function: str, file_path: str, line: int,
+                               element_type: str | None = None):
+        """Create a Channel node and CHAN_SENDS or CHAN_RECEIVES edge."""
+        edge_type = "CHAN_SENDS" if operation in ("send", "create", "close") else "CHAN_RECEIVES"
+        self._run(f"""
+            MERGE (ch:Channel {{name: $channel_name}})
+            ON CREATE SET ch.element_type = $element_type
+            WITH ch
+            MERGE (fn:Function {{name: $function, file: $file_path}})
+            MERGE (fn)-[:{edge_type} {{line: $line}}]->(ch)
+        """, channel_name=channel_name, element_type=element_type,
+            file_path=file_path, function=function, line=line)
 
     def upsert_metatable_inheritance(self, child_file: str, parent_module: str,
                                       table_var: str):
@@ -457,6 +482,8 @@ class GraphWriter:
                 call.line, call.is_pcall_wrapped,
                 call.classification,
                 call.resolution_confidence,
+                call.is_goroutine,
+                call.is_deferred,
             )
 
         # ngx.ctx accesses
@@ -528,6 +555,14 @@ class GraphWriter:
                     ast.file_path, sa.resource_id or "<unknown>",
                     sa.operation,
                 )
+
+        # Channel accesses (Go)
+        for ca in ast.channel_accesses:
+            self.upsert_channel_access(
+                ca.channel_name, ca.operation,
+                ca.function, ast.file_path, ca.line,
+                ca.element_type,
+            )
 
     def upsert_mission_dispatch(self, source_file: str, task_name: str,
                                  target_file: str | None, line: int):
