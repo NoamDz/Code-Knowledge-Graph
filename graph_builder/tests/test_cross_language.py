@@ -235,3 +235,53 @@ def test_resolve_shared_constants_edge_shape():
     assert "values" in edge
     assert "file" in edge
     assert "language" in edge
+
+
+# --- Writer method existence tests ---
+# (Actual Cypher execution requires Memgraph; here we test method signatures exist)
+
+from graph_builder.ingestion.writer import GraphWriter
+
+
+def test_writer_has_upsert_shared_data_structure():
+    """GraphWriter has upsert_shared_data_structure method."""
+    assert hasattr(GraphWriter, "upsert_shared_data_structure")
+    import inspect
+    sig = inspect.signature(GraphWriter.upsert_shared_data_structure)
+    params = list(sig.parameters.keys())
+    assert "name" in params
+    assert "fields" in params
+    assert "serialization_format" in params
+
+
+def test_writer_has_upsert_defines_structure():
+    """GraphWriter has upsert_defines_structure method."""
+    assert hasattr(GraphWriter, "upsert_defines_structure")
+    import inspect
+    sig = inspect.signature(GraphWriter.upsert_defines_structure)
+    params = list(sig.parameters.keys())
+    assert "file_path" in params
+    assert "structure_name" in params
+    assert "language" in params
+    assert "field_count" in params
+
+
+def test_writer_has_upsert_shared_constant():
+    """GraphWriter has upsert_shared_constant method."""
+    assert hasattr(GraphWriter, "upsert_shared_constant")
+    import inspect
+    sig = inspect.signature(GraphWriter.upsert_shared_constant)
+    params = list(sig.parameters.keys())
+    assert "name" in params
+    assert "values" in params
+
+
+def test_writer_has_upsert_defines_constant():
+    """GraphWriter has upsert_defines_constant method."""
+    assert hasattr(GraphWriter, "upsert_defines_constant")
+    import inspect
+    sig = inspect.signature(GraphWriter.upsert_defines_constant)
+    params = list(sig.parameters.keys())
+    assert "file_path" in params
+    assert "constant_name" in params
+    assert "language" in params

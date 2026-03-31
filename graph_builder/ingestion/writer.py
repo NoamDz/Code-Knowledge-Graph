@@ -736,6 +736,43 @@ class GraphWriter:
             MERGE (f)-[:READS_CONFIG]->(c)
         """, config=config_name, file=file_path)
 
+    # --- Cross-language data flow upserts ---
+
+    def upsert_shared_data_structure(self, name: str, fields: list[str],
+                                      serialization_format: str):
+        """Create or update a SharedDataStructure node."""
+        self._run("""
+            MERGE (s:SharedDataStructure {name: $name})
+            SET s.fields = $fields,
+                s.serialization_format = $fmt
+        """, name=name, fields=fields, fmt=serialization_format)
+
+    def upsert_defines_structure(self, file_path: str, structure_name: str,
+                                  language: str, field_count: int):
+        """Create a DEFINES_SHARED_STRUCTURE edge from File to SharedDataStructure."""
+        self._run("""
+            MERGE (f:File {path: $file})
+            MERGE (s:SharedDataStructure {name: $struct})
+            MERGE (f)-[:DEFINES_SHARED_STRUCTURE {language: $lang, field_count: $fc}]->(s)
+        """, file=file_path, struct=structure_name,
+             lang=language, fc=field_count)
+
+    def upsert_shared_constant(self, name: str, values: list[str]):
+        """Create or update a SharedConstant node."""
+        self._run("""
+            MERGE (c:SharedConstant {name: $name})
+            SET c.values = $values
+        """, name=name, values=values)
+
+    def upsert_defines_constant(self, file_path: str, constant_name: str,
+                                 language: str):
+        """Create a DEFINES_CONSTANT edge from File to SharedConstant."""
+        self._run("""
+            MERGE (f:File {path: $file})
+            MERGE (c:SharedConstant {name: $const})
+            MERGE (f)-[:DEFINES_CONSTANT {language: $lang}]->(c)
+        """, file=file_path, const=constant_name, lang=language)
+
     def clear_file(self, file_path: str):
         """Remove all nodes and edges originating from a file."""
         self._run("""
