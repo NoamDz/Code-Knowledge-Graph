@@ -165,6 +165,7 @@ class BuiltinClassifier:
     def __init__(self):
         self._counts: dict[str, int] = {
             "builtin": 0,
+            "coroutine": 0,
             "external": 0,
             "truly_unresolved": 0,
             "already_resolved": 0,
@@ -213,6 +214,7 @@ class BuiltinClassifier:
         # Reset counts
         self._counts = {
             "builtin": 0,
+            "coroutine": 0,
             "external": 0,
             "truly_unresolved": 0,
             "already_resolved": 0,
