@@ -170,11 +170,14 @@ def build(ctx):
         for imp in ast.imports:
             if imp.is_dynamic:
                 continue
-            # Go stdlib classification: mark stdlib imports before normal resolution
+            # Go stdlib/external classification: mark before normal resolution
             if ast.language == "go":
                 go_res = resolvers.get("go")
                 if go_res and hasattr(go_res, 'is_stdlib') and go_res.is_stdlib(imp.module_string):
                     file_resolved[imp.module_string] = "__go_stdlib__"
+                    continue
+                if go_res and hasattr(go_res, 'is_external') and go_res.is_external(imp.module_string):
+                    file_resolved[imp.module_string] = "__go_external__"
                     continue
             # Python stdlib classification
             if ast.language == "python":
