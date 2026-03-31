@@ -26,6 +26,8 @@ INDEX_STATEMENTS = [
     "CREATE INDEX ON :SharedRedisPattern(pattern);",
     "CREATE INDEX ON :ConfigFile(name);",
     "CREATE INDEX ON :DatabaseTable(name);",
+    "CREATE INDEX ON :SharedDataStructure(name);",
+    "CREATE INDEX ON :SharedConstant(name);",
 ]
 
 # Node labels and their key properties
@@ -47,6 +49,8 @@ NODE_TYPES = {
     "SharedRedisPattern": ["pattern"],
     "ConfigFile": ["name"],
     "DatabaseTable": ["name"],
+    "SharedDataStructure": ["name", "fields", "serialization_format"],
+    "SharedConstant": ["name", "values"],
 }
 
 # Edge types and their properties
@@ -80,6 +84,8 @@ EDGE_TYPES = {
     "STREAMS_TO": ["operation"],
     "ACCESSES_S3": ["operation"],
     "READS_CONFIG": [],
+    "DEFINES_SHARED_STRUCTURE": ["language", "field_count"],
+    "DEFINES_CONSTANT": ["language"],
 }
 
 
