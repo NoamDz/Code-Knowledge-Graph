@@ -1,18 +1,18 @@
 (.venv) il021250@Noams-MacBook-Pro Code-Knowledge-Graph % code-graph -c config.yml build
 Building code graph for: /Users/il021250/dev/pinpoint/src
-Scanning 1234 files...
-Parsed 1234 files (0 errors)
+Scanning 1237 files...
+Parsed 1237 files (0 errors)
   Lua package paths: 29 templates
 Resolving cross-file imports...
 Resolving cross-file calls...
-  Calls: 45436 total, 21494 resolved (47.3%)
+  Calls: 45592 total, 21605 resolved (47.4%)
 Resolving Redis abstraction layers...
-  Redis accesses via abstractions: +694 (total: 712)
+  Redis accesses via abstractions: +661 (total: 679)
 Resolving parameter-name calls...
   Parameter calls resolved: 1617
   Base-inherited calls resolved: 28
 Classifying unresolved calls...
-  Builtins: 8503, External: 185, Truly unresolved: 13609
+  Builtins: 8513, External: 188, Truly unresolved: 13627
 Linking cross-language endpoints...
   Controller routes: 8
   Linked 8 cross-language HTTP calls to endpoints
@@ -21,12 +21,14 @@ Resolving JS ERB render-chain inclusions...
   ERB render includes: 49, collector loop includes: 56
 Detecting cross-service IPC patterns...
   Unix sockets: 9, Redis patterns: 8, DB accesses: 54, AWS accesses: 16, Config edges: 5
+Detecting cross-language shared structures and constants...
+  Shared structures: 4 edges, shared constants: 2 edges
 Ingesting into Memgraph...
   Ingested 24 nginx locations, 2 proxy_pass, 0 upstreams
   Go same-package edges: 245
-  71238 graph writes
+  71636 graph writes
 
-Build completed in 92.4s
+Build completed in 90.4s
 (.venv) il021250@Noams-MacBook-Pro Code-Knowledge-Graph % code-graph -c config.yml validate
 
 ============================================================
@@ -34,28 +36,28 @@ Build completed in 92.4s
   Repository: /Users/il021250/dev/pinpoint/src
 ============================================================
 
-  Total source files found: 1234
+  Total source files found: 1237
 
 --- FILES ---
-   lua:  820 /  820 parsed (100.0%)  [errors: 0]
+   lua:  823 /  823 parsed (100.0%)  [errors: 0]
     py:   96 /   96 parsed (100.0%)  [errors: 0]
     rb:  151 /  151 parsed (100.0%)  [errors: 0]
     js:   94 /   94 parsed (100.0%)  [errors: 0]
     go:   73 /   73 parsed (100.0%)  [errors: 0]
 
 --- ENTITIES ---
-  Functions:      7822 (5641 public)
+  Functions:      7838 (5657 public)
   Classes:         330
-    lua: 5056 functions (3162 public), 0 classes
+    lua: 5072 functions (3178 public), 0 classes
     py: 391 functions (377 public), 98 classes
     rb: 809 functions (715 public), 91 classes
     js: 908 functions (908 public), 0 classes
     go: 658 functions (479 public), 141 classes
 
 --- IMPORTS ---
-  Total import refs:  6610
+  Total import refs:  6631
   Dynamic imports:    67
-  Likely resolved:    5566 / 6543
+  Likely resolved:    5584 / 6564
   Likely internal but unresolved: 10
     resty.lock (from monitor.lua)
     resty.lock (from mysql_fallback_timer.lua)
@@ -69,10 +71,10 @@ Build completed in 92.4s
     resty.sha256 (from mysql.lua)
 
 --- EXPORTS ---
-  Total exports:     7307
-  Files with exports:    1064
+  Total exports:     7327
+  Files with exports:    1067
   Files without exports: 170
-    lua: 765 / 820 (93.3%)
+    lua: 768 / 823 (93.3%)
     py: 79 / 96 (82.3%)
     rb: 82 / 151 (54.3%)
       ⚠ LOW: Consider auditing rb parser export detection
@@ -81,17 +83,17 @@ Build completed in 92.4s
     go: 69 / 73 (94.5%)
 
 --- CALLS ---
-  Total calls:         45436
-  Resolved to module:  23139 (50.9%)
-  pcall-wrapped:       259
-  Call resolution:     47.3% (21494/45436)
+  Total calls:         45592
+  Resolved to module:  23250 (51.0%)
+  pcall-wrapped:       263
+  Call resolution:     47.4% (21605/45592)
 
 --- CALL CLASSIFICATION ---
-  Builtins:            8503
-  External libs:       185
-  Truly unresolved:    13609
-  Resolved (skipped):  23139
-  Effective coverage:  70.0% (resolved + builtin + external)
+  Builtins:            8513
+  External libs:       188
+  Truly unresolved:    13627
+  Resolved (skipped):  23250
+  Effective coverage:  70.1% (resolved + builtin + external)
   Calls per function:  5.8
 
 --- OPENRESTY ---
@@ -100,9 +102,9 @@ Build completed in 92.4s
   Internal redirects:   0
 
 --- CROSS-SERVICE ---
-  Redis key accesses:   673
-    (direct: 18, via abstractions: +655)
-    lua: 655
+  Redis key accesses:   639
+    (direct: 18, via abstractions: +621)
+    lua: 621
     py: 1
     rb: 17
   HTTP client calls:    70
@@ -112,7 +114,7 @@ Build completed in 92.4s
     go: 3
 
 --- LUA MODULE PATTERNS ---
-                     M: 592
+                     M: 595
                  named: 186
            side_effect: 17
                 direct: 14
@@ -152,7 +154,7 @@ Build completed in 92.4s
   ⚠ Dynamic require at line 10: require(string.format("common.tasks.%s", task_name))
   ... and 56 more
 
-  Report generated in 36.37s
+  Report generated in 35.36s
 
 (.venv) il021250@Noams-MacBook-Pro Code-Knowledge-Graph % code-graph -c config.yml health
 
@@ -170,7 +172,7 @@ Build completed in 92.4s
   Export coverage: 69/73 files (94.5%)
   Import resolution: 308/512 (60.2%)
   Call resolution:   3011/4949 (60.8%)
-  Redis accesses:  39
+  Redis accesses:  40
   HTTP calls:      3
   Functions w/ outgoing calls: 584
   Orphan functions (0 calls):  74
@@ -206,30 +208,30 @@ Build completed in 92.4s
       0 imports  behave_utils.js.erb
       0 imports  hook_inputs.js.erb
       0 imports  keystrokes.js.erb
-  Orphan files (no import edges): 94
-    behave.js.erb
-    behave_utils.js.erb
-    hook_inputs.js.erb
-    keystrokes.js.erb
-    metastrokes.js.erb
-    ... and 89 more
+  Orphan files (no import edges): 16
+    dummy_container.js.erb
+    DOMLoadedHelper.js.erb
+    aes.js.erb
+    casper_ext.js
+    device_features.js.erb
+    ... and 11 more
 
   ──────────────────────────────────────────────────────────────────
   LANGUAGE: LUA
   ──────────────────────────────────────────────────────────────────
-  Files:           820
-  Functions:       5056 (3162 public)
+  Files:           823
+  Functions:       5072 (3178 public)
   Classes:         0
-  Export coverage: 765/820 files (93.3%)
-  Import resolution: 4953/5276 (93.9%)
-  Call resolution:   17283/28899 (59.8%)
-  Redis accesses:  943
+  Export coverage: 768/823 files (93.3%)
+  Import resolution: 4971/5297 (93.8%)
+  Call resolution:   17394/29055 (59.9%)
+  Redis accesses:  909
   HTTP calls:      17
-  Functions w/ outgoing calls: 4653
-  Orphan functions (0 calls):  396
+  Functions w/ outgoing calls: 4668
+  Orphan functions (0 calls):  397
   Top importers:
      64 imports  helpers.lua
-     41 imports  init.lua
+     42 imports  init.lua
      38 imports  init.lua
      37 imports  policy.lua
      37 imports  model_prediction.lua
@@ -252,8 +254,8 @@ Build completed in 92.4s
   Call resolution:   926/2198 (42.1%)
   Redis accesses:  1
   HTTP calls:      5
-  Functions w/ outgoing calls: 42
-  Orphan functions (0 calls):  335
+  Functions w/ outgoing calls: 290
+  Orphan functions (0 calls):  87
   Top importers:
      13 imports  runner.py
      13 imports  app.py
@@ -275,7 +277,7 @@ Build completed in 92.4s
   Functions:       809 (715 public)
   Classes:         91
   Export coverage: 82/151 files (54.3%)
-  Import resolution: 145/343 (42.3%)
+  Import resolution: 150/343 (43.7%)
   Call resolution:   932/5681 (16.4%)
   Redis accesses:  17
   HTTP calls:      0
@@ -287,13 +289,13 @@ Build completed in 92.4s
      17 imports  generate_origin.rb
      16 imports  generator.rb
      14 imports  runner.rb
-  Orphan files (no import edges): 88
+  Orphan files (no import edges): 71
     behave.rb
     custom_fields.rb
     device_id.rb
     failed_login.rb
     fraud_attributes.rb
-    ... and 83 more
+    ... and 66 more
 
   ──────────────────────────────────────────────────────────────────
   TECHNIQUE COVERAGE MATRIX
@@ -326,17 +328,17 @@ Build completed in 92.4s
   ──────────────────────────────────────────────────────────────────
   GLOBAL SUMMARY
   ──────────────────────────────────────────────────────────────────
-  Total files:     1234 (0 parse errors)
-  Total functions: 7822
+  Total files:     1237 (0 parse errors)
+  Total functions: 7838
   Total classes:   330
-  Import resolution: 5556/6543 (84.9%)
-  Call resolution:   45436 total, 23139 resolved (50.9%)
-    (CallResolver: 21494, parameter: +1617, base-inherited: +28)
+  Import resolution: 5579/6564 (85.0%)
+  Call resolution:   45592 total, 23250 resolved (51.0%)
+    (CallResolver: 21605, parameter: +1617, base-inherited: +28)
   Call classification:
-    Builtins:          8503
-    External:          185
-    Truly unresolved:  13609
-  Redis accesses:  1000 (direct: 18, via abstractions: +982)
+    Builtins:          8513
+    External:          188
+    Truly unresolved:  13627
+  Redis accesses:  967 (direct: 18, via abstractions: +949)
   HTTP calls:      70
 
-  Report generated in 65.29s
+  Report generated in 63.17s
