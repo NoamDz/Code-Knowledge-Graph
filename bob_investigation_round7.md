@@ -14,6 +14,143 @@ We also need specific files (go.mod, Gemfile) to implement import resolution imp
 
 **A1.** Show the contents of the `go.mod` file for the Go model prediction service. We need the `module` declaration and all `require` directives.
 
+**Answer A1:**
+
+Location: `src/core/model_prediction/server/go.mod`
+
+```go
+module pp-consumer
+
+require (
+	github.com/aws/aws-sdk-go v1.38.14
+	github.com/go-redis/redismock/v9 v9.0.3
+	github.com/go-sql-driver/mysql v1.6.0
+	github.com/lithammer/shortuuid/v3 v3.0.6
+	github.com/redis/go-redis/v9 v9.0.3
+	github.com/stretchr/objx v0.5.2
+	github.com/stretchr/testify v1.10.0
+	github.com/timandy/routine v1.1.5
+	golang.org/x/sys v0.14.0
+	gopkg.in/alexcesaro/statsd.v2 v2.0.0
+)
+
+require (
+	github.com/cespare/xxhash/v2 v2.2.0 // indirect
+	github.com/davecgh/go-spew v1.1.1 // indirect
+	github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f // indirect
+	github.com/google/uuid v1.2.0 // indirect
+	github.com/jmespath/go-jmespath v0.4.0 // indirect
+	github.com/pmezard/go-difflib v1.0.0 // indirect
+	golang.org/x/text v0.13.0 // indirect
+	gopkg.in/yaml.v2 v2.3.0 // indirect
+	gopkg.in/yaml.v3 v3.0.1 // indirect
+)
+
+go 1.23.8
+```
+
+**Key observations:**
+- Module name: `pp-consumer`
+- 13 direct dependencies
+- 9 indirect dependencies
+- Go version: 1.23.8 (note: AGENTS.md mentions Go 1.22 is required, but go.mod shows 1.23.8)
+
+---
+
+**A2.** Is the `vendor/` directory used? If so, show `ls vendor/` to see vendored packages.
+
+**Answer A2:**
+
+**No, the `vendor/` directory is NOT used.**
+
+Directory listing of `src/core/model_prediction/server/`:
+```
+go.mod
+go.sum
+router_test.go
+router.go
+server.code-workspace
+common/
+config/
+events/
+helpers/
+models/
+services/
+tasks/
+tests/
+```
+
+No `vendor/` directory exists. The project uses standard Go module resolution via `go.mod` and `go.sum`.
+
+---
+
+**A3.** What is the exact import path prefix used by internal packages? Show 5 import statements from different Go files that reference other internal packages (not stdlib, not external).
+
+**Answer A3:**
+
+**Import path prefix: `pp-consumer`**
+
+All internal packages use the `pp-consumer` prefix, matching the module declaration in go.mod.
+
+**5 examples from different files:**
+
+1. **From `router.go` (main entry point):**
+```go
+import (
+	"pp-consumer/common/common_utils"
+	"pp-consumer/common/constants"
+	"pp-consumer/common/utils"
+	"pp-consumer/config"
+	"pp-consumer/services"
+	"pp-consumer/tasks"
+)
+```
+
+2. **From `helpers/policy.go`:**
+```go
+import (
+	"pp-consumer/common/constants"
+	"pp-consumer/common/utils"
+)
+```
+
+3. **From `services/kinesis.go`:**
+```go
+import (
+	"pp-consumer/common/utils"
+	"pp-consumer/config"
+)
+```
+
+4. **From `models/model_prediction.go`:**
+```go
+import (
+	"pp-consumer/common/utils"
+)
+```
+
+5. **From `tasks/init.go`:**
+```go
+import (
+	"pp-consumer/common/constants"
+	redis "pp-consumer/common/db"
+	"pp-consumer/common/utils"
+	"pp-consumer/services"
+)
+```
+
+**Pattern analysis:**
+- All internal imports use the `pp-consumer/` prefix
+- Common internal packages imported:
+  - `pp-consumer/common/utils` (most frequent)
+  - `pp-consumer/common/constants`
+  - `pp-consumer/config`
+  - `pp-consumer/services`
+  - `pp-consumer/tasks`
+  - `pp-consumer/common/db` (aliased as `redis`)
+  - `pp-consumer/common/common_utils`
+- The module structure follows: `pp-consumer/{package}/{subpackage}`
+
 **A2.** Is the `vendor/` directory used? If so, show `ls vendor/` to see vendored packages.
 
 **A3.** What is the exact import path prefix used by internal packages? Show 5 import statements from different Go files that reference other internal packages (not stdlib, not external).
