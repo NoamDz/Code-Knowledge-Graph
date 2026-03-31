@@ -76,6 +76,7 @@ class PythonResolver:
     def __init__(self, repo_root: str):
         self.repo_root = Path(repo_root)
         self._index: dict[str, str] | None = None
+        self._package_roots: dict[str, Path] | None = None
 
     def _build_index(self) -> dict[str, str]:
         """Build module_string → file_path index for all Python files."""
@@ -128,6 +129,14 @@ class PythonResolver:
         result = self._resolve_absolute(module_string)
         if result:
             return result
+
+        # Try resolving relative to package roots: handles imports like
+        # 'from services.models import X' where services/ lives under a
+        # package root's parent directory.
+        if "." in module_string:
+            result = self._resolve_via_package_roots(module_string)
+            if result:
+                return result
 
         # For bare-name imports (no dots), try same-directory resolution
         if "." not in module_string and from_file:
@@ -233,6 +242,38 @@ class PythonResolver:
         top = module_string.split(".")[0]
         return top in PYTHON_STDLIB_TOP
 
+    def _resolve_via_package_roots(self, module_string: str) -> str | None:
+        """Try resolving an import relative to each package root's parent.
+
+        For example, if package root is /repo/deferrer/aggregator/aggregator/
+        then we try the import as a path under /repo/deferrer/aggregator/.
+        This handles imports like 'from services.models import X' that are
+        relative to a package's containing directory.
+        """
+        if self._package_roots is None:
+            self._package_roots = self._find_package_roots()
+
+        as_path = module_string.replace(".", "/")
+
+        # Deduplicate roots to avoid redundant filesystem checks
+        seen_roots: set[str] = set()
+        for root in self._package_roots.values():
+            root_parent = root.parent
+            root_key = str(root_parent)
+            if root_key in seen_roots:
+                continue
+            seen_roots.add(root_key)
+
+            candidates = [
+                root_parent / f"{as_path}.py",
+                root_parent / as_path / "__init__.py",
+            ]
+            for candidate in candidates:
+                if candidate.exists():
+                    return str(candidate)
+
+        return None
+
     def _find_package_roots(self) -> dict[str, Path]:
         """Find the topmost __init__.py for each package tree.
 
@@ -243,6 +284,9 @@ class PythonResolver:
         Returns:
             Dict mapping .py file path string -> topmost package root Path.
         """
+        if self._package_roots is not None:
+            return self._package_roots
+
         skip = {"node_modules", ".git", "__pycache__", ".mypy_cache",
                 "vendor", "venv", ".venv", "dist", "build", ".tox", ".eggs"}
         roots: dict[str, Path] = {}
@@ -259,6 +303,7 @@ class PythonResolver:
                 current = current.parent
             if topmost:
                 roots[str(py_file)] = topmost
+        self._package_roots = roots
         return roots
 
     def stats(self) -> dict:
