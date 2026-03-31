@@ -437,3 +437,69 @@ class TestGoModParsing:
         assert "external_deps" in stats, f"stats should include external_deps, got: {stats}"
         assert stats["module_name"] == "pp-consumer"
         assert stats["external_deps"] >= 10  # 10 deps in go.mod
+
+
+from graph_builder.resolvers.ruby_resolver import RubyResolver
+
+
+# ---------------------------------------------------------------
+# Task 6: Ruby Gemfile parsing
+# ---------------------------------------------------------------
+
+class TestRubyGemfileParsing:
+    """Test Ruby Gemfile parsing and gem classification."""
+
+    def test_parse_gemfiles_finds_gems(self):
+        """_parse_gemfiles should extract gem names from Gemfile."""
+        resolver = RubyResolver(str(RUBY_FIXTURES))
+        gems = resolver._parsed_gems
+        assert "activesupport" in gems, f"Should find activesupport, got: {gems}"
+        assert "redis" in gems, f"Should find redis, got: {gems}"
+        assert "aws-sdk-s3" in gems, f"Should find aws-sdk-s3, got: {gems}"
+        assert "rest-client" in gems, f"Should find rest-client, got: {gems}"
+        assert "pry" in gems, f"Should find pry (dev gem), got: {gems}"
+
+    def test_is_gem_matches_known_gems(self):
+        """is_gem should match gem names and common aliases."""
+        resolver = RubyResolver(str(RUBY_FIXTURES))
+        assert resolver.is_gem("redis") is True
+        assert resolver.is_gem("active_support") is True  # underscore variant
+        assert resolver.is_gem("rest-client") is True
+        assert resolver.is_gem("rest_client") is True  # underscore variant
+        assert resolver.is_gem("oj") is True
+        assert resolver.is_gem("dalli") is True
+
+    def test_is_gem_rejects_unknown(self):
+        """is_gem should reject unknown modules."""
+        resolver = RubyResolver(str(RUBY_FIXTURES))
+        assert resolver.is_gem("my_custom_lib") is False
+        assert resolver.is_gem("nonexistent_gem") is False
+
+    def test_is_gem_handles_submodules(self):
+        """is_gem should match 'active_support/core_ext' via base name."""
+        resolver = RubyResolver(str(RUBY_FIXTURES))
+        assert resolver.is_gem("active_support/core_ext") is True
+        assert resolver.is_gem("aws-sdk-s3/resource") is True
+
+    def test_resolve_returns_gem_sentinel(self):
+        """Unresolved gem imports should return '__ruby_gem__' sentinel."""
+        resolver = RubyResolver(str(RUBY_FIXTURES))
+        result = resolver.resolve("redis")
+        # redis is not in our test fixtures as a .rb file, so it should
+        # resolve as a gem sentinel (not stdlib, not in index)
+        assert result == "__ruby_gem__", \
+            f"'redis' should resolve to '__ruby_gem__', got: {result}"
+
+    def test_resolve_unknown_returns_none(self):
+        """Truly unknown imports should return None."""
+        resolver = RubyResolver(str(RUBY_FIXTURES))
+        result = resolver.resolve("completely_unknown_thing")
+        assert result is None, \
+            f"Unknown module should return None, got: {result}"
+
+    def test_stats_include_gems(self):
+        """stats() should include parsed_gems count."""
+        resolver = RubyResolver(str(RUBY_FIXTURES))
+        stats = resolver.stats()
+        assert "parsed_gems" in stats, f"stats should include parsed_gems, got: {stats}"
+        assert stats["parsed_gems"] >= 10
