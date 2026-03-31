@@ -35,8 +35,8 @@ INDEX_STATEMENTS = [
 NODE_TYPES = {
     "File": ["path", "language", "last_indexed"],
     "Module": ["name", "file", "pattern_type"],
-    "Function": ["name", "file", "line", "line_end", "visibility", "is_method"],
-    "Class": ["name", "file", "line", "line_end", "parent_class"],
+    "Function": ["name", "file", "line", "line_end", "visibility", "is_method", "decorators", "is_coroutine"],
+    "Class": ["name", "file", "line", "line_end", "parent_class", "is_interface"],
     "Endpoint": ["path", "method"],
     "NginxPhase": ["phase_type", "endpoint", "lua_file", "is_inline"],
     "ContextKey": ["name"],
@@ -57,17 +57,17 @@ NODE_TYPES = {
 
 # Edge types and their properties
 EDGE_TYPES = {
-    "IMPORTS": ["module"],
+    "IMPORTS": ["module", "local_binding"],
     "DEFINES": [],
-    "CALLS": ["line", "is_pcall"],
+    "CALLS": ["line", "is_pcall", "classification", "resolution_confidence", "is_goroutine", "is_deferred"],
     "HANDLES": [],
     "HAS_PHASE": [],
     "EXTENDS": [],
     "INCLUDES": [],
     "REQUIRES": ["module"],
     "EXPORTS": [],
-    "CTX_WRITES": ["function", "line"],
-    "CTX_READS": ["function", "line"],
+    "CTX_WRITES": ["function", "line", "scope"],
+    "CTX_READS": ["function", "line", "scope"],
     "USES_SHARED": ["operation", "function", "line"],
     "REROUTES_TO": ["redirect_type", "line"],
     "REDIS_READS": ["operation", "line"],
@@ -90,6 +90,11 @@ EDGE_TYPES = {
     "DEFINES_CONSTANT": ["language"],
     "CHAN_SENDS": ["function", "line"],
     "CHAN_RECEIVES": ["function", "line"],
+    "INHERITS_VIA_METATABLE": ["table_var"],
+    "POTENTIAL_IMPORT": ["prefix", "line", "dynamic"],
+    "SAME_PACKAGE": ["package"],
+    "LOADS_DYNAMICALLY": ["load_type"],
+    "IMPLEMENTS": [],
 }
 
 
