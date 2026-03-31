@@ -42,11 +42,16 @@ def test_ruby_stdlib_method():
 
 
 def test_ruby_gem_returns_none():
-    """Unknown gems should return None (not stdlib sentinel)."""
+    """Unknown gems should return None (not stdlib sentinel).
+
+    Note: gems listed in fixtures/ruby/Gemfile now return '__ruby_gem__'
+    instead of None. Only truly unknown gems return None.
+    """
     resolver = RubyResolver(str(RB_FIXTURES))
-    assert resolver.resolve("rails") is None
-    assert resolver.resolve("nokogiri") is None
-    assert resolver.resolve("rspec") is None
+    assert resolver.resolve("rails") is None  # not in Gemfile
+    assert resolver.resolve("nokogiri") is None  # not in Gemfile
+    # rspec IS in the Gemfile fixture, so it returns __ruby_gem__
+    assert resolver.resolve("rspec") == "__ruby_gem__"
 
 
 # ---------------------------------------------------------------------------
