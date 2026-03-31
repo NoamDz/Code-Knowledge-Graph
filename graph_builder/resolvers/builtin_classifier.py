@@ -173,7 +173,7 @@ class BuiltinClassifier:
     def classify_call(self, callee_string: str, language: str) -> str:
         """Classify a single call string for a given language.
 
-        Returns one of: "builtin", "external", "truly_unresolved".
+        Returns one of: "builtin", "coroutine", "external", "truly_unresolved".
         """
         config = LANGUAGE_CONFIG.get(language)
         if not config:
@@ -181,6 +181,10 @@ class BuiltinClassifier:
 
         # Extract bare name (before first . or :)
         bare = callee_string.split(".")[0].split(":")[0]
+
+        # Lua-specific: coroutine.* calls get special classification
+        if language == "lua" and bare == "coroutine":
+            return "coroutine"
 
         # Check global builtins set
         if bare in config["builtins"]:
