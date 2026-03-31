@@ -219,6 +219,14 @@ def build(ctx):
     if redis_added > 0:
         click.echo(f"  Redis accesses via abstractions: +{redis_added} (total: {redis_after})")
 
+    # Step 4b1: Resolve Ruby dynamic loading (Dir.glob, class_eval)
+    ruby_resolver = resolvers.get("ruby")
+    ruby_dynamic_edges: list[dict] = []
+    if ruby_resolver and hasattr(ruby_resolver, "resolve_dynamic_loading"):
+        ruby_dynamic_edges = ruby_resolver.resolve_dynamic_loading(all_asts)
+        if ruby_dynamic_edges:
+            click.echo(f"  Ruby dynamic loading: {len(ruby_dynamic_edges)} edges")
+
     # Step 4b2: Resolve parameter name calls
     click.echo("Resolving parameter-name calls...")
     from .resolvers.parameter_resolver import resolve_parameter_calls
@@ -440,6 +448,13 @@ def build(ctx):
 
         for edge in config_edges:
             writer.upsert_config_reads(edge["file"], edge["config"])
+
+        # Ingest Ruby dynamic loading edges
+        if ruby_dynamic_edges:
+            for edge in ruby_dynamic_edges:
+                writer.upsert_dynamic_load(
+                    edge["source"], edge["target"], edge["load_type"],
+                )
 
         # Ingest cross-language shared structure edges
         seen_structures: set[str] = set()
