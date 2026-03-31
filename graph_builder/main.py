@@ -176,6 +176,12 @@ def build(ctx):
                 if go_res and hasattr(go_res, 'is_stdlib') and go_res.is_stdlib(imp.module_string):
                     file_resolved[imp.module_string] = "__go_stdlib__"
                     continue
+            # Python stdlib classification
+            if ast.language == "python":
+                py_res = resolvers.get("python")
+                if py_res and hasattr(py_res, 'is_stdlib') and py_res.is_stdlib(imp.module_string):
+                    file_resolved[imp.module_string] = "__python_stdlib__"
+                    continue
             resolver_key = lang_to_resolver.get(ast.language)
             resolver = resolvers.get(resolver_key) if resolver_key else None
             if resolver:

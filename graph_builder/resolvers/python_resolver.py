@@ -17,6 +17,59 @@ from __future__ import annotations
 from pathlib import Path
 
 
+# Python standard library top-level packages (Python 3.10+)
+# Used for classification (not resolution -- stdlib imports are always "external")
+PYTHON_STDLIB_TOP = frozenset({
+    "abc", "aifc", "argparse", "array", "ast", "asynchat", "asyncio",
+    "asyncore", "atexit", "audioop", "base64", "bdb", "binascii",
+    "binhex", "bisect", "builtins", "bz2",
+    "calendar", "cgi", "cgitb", "chunk", "cmath", "cmd", "code",
+    "codecs", "codeop", "collections", "colorsys", "compileall",
+    "concurrent", "configparser", "contextlib", "contextvars", "copy",
+    "copyreg", "cProfile", "crypt", "csv", "ctypes", "curses",
+    "dataclasses", "datetime", "dbm", "decimal", "difflib", "dis",
+    "distutils", "doctest",
+    "email", "encodings", "enum", "errno",
+    "faulthandler", "fcntl", "filecmp", "fileinput", "fnmatch",
+    "fractions", "ftplib", "functools",
+    "gc", "getopt", "getpass", "gettext", "glob", "grp", "gzip",
+    "hashlib", "heapq", "hmac", "html", "http",
+    "idlelib", "imaplib", "imghdr", "imp", "importlib", "inspect",
+    "io", "ipaddress", "itertools",
+    "json",
+    "keyword",
+    "lib2to3", "linecache", "locale", "logging", "lzma",
+    "mailbox", "mailcap", "marshal", "math", "mimetypes", "mmap",
+    "modulefinder", "multiprocessing",
+    "netrc", "nis", "nntplib", "numbers",
+    "operator", "optparse", "os", "ossaudiodev",
+    "pathlib", "pdb", "pickle", "pickletools", "pipes", "pkgutil",
+    "platform", "plistlib", "poplib", "posix", "posixpath", "pprint",
+    "profile", "pstats", "pty", "pwd", "py_compile", "pyclbr",
+    "pydoc",
+    "queue", "quopri",
+    "random", "re", "readline", "reprlib", "resource", "rlcompleter",
+    "runpy",
+    "sched", "secrets", "select", "selectors", "shelve", "shlex",
+    "shutil", "signal", "site", "smtpd", "smtplib", "sndhdr",
+    "socket", "socketserver", "sqlite3", "ssl", "stat", "statistics",
+    "string", "stringprep", "struct", "subprocess", "sunau", "symtable",
+    "sys", "sysconfig", "syslog",
+    "tabnanny", "tarfile", "telnetlib", "tempfile", "termios", "test",
+    "textwrap", "threading", "time", "timeit", "tkinter", "token",
+    "tokenize", "tomllib", "trace", "traceback", "tracemalloc", "tty",
+    "turtle", "turtledemo", "types", "typing",
+    "unicodedata", "unittest", "urllib", "uu", "uuid",
+    "venv",
+    "warnings", "wave", "weakref", "webbrowser", "winreg", "winsound",
+    "wsgiref",
+    "xdrlib", "xml", "xmlrpc",
+    "zipapp", "zipfile", "zipimport", "zlib", "zoneinfo",
+    # Also common aliases/sub-packages that appear as top-level
+    "_thread", "__future__",
+})
+
+
 class PythonResolver:
     """Resolves Python import strings to file paths."""
 
@@ -168,9 +221,51 @@ class PythonResolver:
             return str(candidate_pkg)
         return None
 
+    def is_stdlib(self, module_string: str) -> bool:
+        """Check if a module string is a Python standard library module.
+
+        Args:
+            module_string: e.g., "os", "os.path", "collections.abc"
+
+        Returns:
+            True if the top-level package is in the Python stdlib.
+        """
+        top = module_string.split(".")[0]
+        return top in PYTHON_STDLIB_TOP
+
+    def _find_package_roots(self) -> dict[str, Path]:
+        """Find the topmost __init__.py for each package tree.
+
+        Walks upward from each .py file to find the highest directory
+        that still contains __init__.py. This identifies package roots
+        for resolving absolute imports.
+
+        Returns:
+            Dict mapping .py file path string -> topmost package root Path.
+        """
+        skip = {"node_modules", ".git", "__pycache__", ".mypy_cache",
+                "vendor", "venv", ".venv", "dist", "build", ".tox", ".eggs"}
+        roots: dict[str, Path] = {}
+        for py_file in self.repo_root.rglob("*.py"):
+            if any(s in py_file.parts for s in skip):
+                continue
+            current = py_file.parent
+            topmost = None
+            while current != self.repo_root and current != current.parent:
+                if (current / "__init__.py").exists():
+                    topmost = current
+                else:
+                    break
+                current = current.parent
+            if topmost:
+                roots[str(py_file)] = topmost
+        return roots
+
     def stats(self) -> dict:
         index = self._build_index()
+        roots = self._find_package_roots()
         return {
             "indexed_modules": len(index),
             "repo_root": str(self.repo_root),
+            "package_roots": len(set(str(v) for v in roots.values())),
         }
