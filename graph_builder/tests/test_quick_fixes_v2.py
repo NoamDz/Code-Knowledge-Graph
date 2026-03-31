@@ -1,17 +1,310 @@
-"""Tests for the quick-fixes-v2 bundle (Tasks 4-7).
+"""Tests for the quick-fixes-v2 bundle (Tasks 1-7).
 
 Run with: python -m pytest graph_builder/tests/test_quick_fixes_v2.py -v
 """
 from __future__ import annotations
 
 import sys
+import inspect
 from pathlib import Path
+from unittest.mock import MagicMock, call, patch
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
+from graph_builder.parsers.base import (
+    FileAST, FunctionDef, ImportRef, CallRef, ContextAccess, ClassDef, ModuleInfo, ModulePatternType,
+)
+from graph_builder.ingestion.writer import GraphWriter
+
+LUA_FIXTURES = Path(__file__).parent / "fixtures" / "lua"
 PY_FIXTURES = Path(__file__).parent / "fixtures" / "python"
 GO_FIXTURES = Path(__file__).parent / "fixtures" / "go"
 RUBY_FIXTURES = Path(__file__).parent / "fixtures" / "ruby"
+
+
+# ───────────────────────────────────────────────────────────────
+# Task 1: Missing edge properties
+# ───────────────────────────────────────────────────────────────
+
+class TestEdgeProperties:
+    """Test that extracted-but-not-written properties are now written."""
+
+    def _make_writer(self):
+        """Create a GraphWriter with mocked driver (no Memgraph needed)."""
+        with patch("graph_builder.ingestion.writer.GraphDatabase"):
+            writer = GraphWriter(uri="bolt://fake:7687")
+            writer._run = MagicMock()
+            # Track buffered items directly
+            return writer
+
+    def test_1a_resolved_call_has_classification_and_confidence(self):
+        """Resolved CALLS edges should include classification and resolution_confidence."""
+        writer = self._make_writer()
+
+        ast = FileAST(
+            file_path="/repo/handler.lua", language="lua",
+            calls=[
+                CallRef(
+                    caller_function="M:process",
+                    callee_string="redis.get",
+                    line=10,
+                    resolved_module="resty.redis",
+                    resolved_function="get",
+                    resolved_file_path="/repo/lib/redis.lua",
+                    resolution_confidence="binding",
+                    classification=None,
+                ),
+            ],
+        )
+        resolved_imports = {"resty.redis": "/repo/lib/redis.lua"}
+        writer.ingest_file_ast(ast, resolved_imports)
+        writer.flush_all()
+
+        # Check that CALLS_resolved buffer included confidence and classification
+        # The edge template must have resolution_confidence and classification fields
+        query = writer._edge_queries["CALLS_resolved"]
+        assert "resolution_confidence" in query, \
+            "CALLS_resolved query template missing resolution_confidence"
+        assert "classification" in query, \
+            "CALLS_resolved query template missing classification"
+
+    def test_1b_imports_edge_has_local_binding(self):
+        """IMPORTS edges should include local_binding property."""
+        writer = self._make_writer()
+        query = writer._edge_queries["IMPORTS"]
+        assert "local_binding" in query, \
+            "IMPORTS query template missing local_binding"
+
+    def test_1c_function_node_has_decorators(self):
+        """Function nodes should include decorators list property."""
+        writer = self._make_writer()
+        query = writer._node_queries["Function"]
+        assert "decorators" in query, \
+            "Function node query template missing decorators"
+
+    def test_1d_class_node_has_is_interface(self):
+        """Class nodes should include is_interface boolean property."""
+        writer = self._make_writer()
+        query = writer._node_queries["Class"]
+        assert "is_interface" in query, \
+            "Class node query template missing is_interface"
+
+    def test_1e_metatable_inheritance_method_exists(self):
+        """GraphWriter should have upsert_metatable_inheritance method."""
+        writer = self._make_writer()
+        assert hasattr(writer, "upsert_metatable_inheritance"), \
+            "GraphWriter missing upsert_metatable_inheritance method"
+
+    def test_1f_ctx_access_has_scope(self):
+        """CTX_READS/CTX_WRITES edges should include scope property."""
+        writer = self._make_writer()
+        # upsert_ctx_access should accept scope parameter
+        sig = inspect.signature(writer.upsert_ctx_access)
+        assert "scope" in sig.parameters, \
+            "upsert_ctx_access missing scope parameter"
+
+    def test_1g_metatable_ingestion_creates_edge(self):
+        """ingest_file_ast should create INHERITS_VIA_METATABLE edges from metatable_parents."""
+        writer = self._make_writer()
+
+        ast = FileAST(
+            file_path="/repo/child.lua", language="lua",
+            module_name="handlers.child",
+            metatable_parents={"_M": "common.base.lua.handler"},
+        )
+        writer.ingest_file_ast(ast, {})
+        writer.flush_all()
+
+        # Check that _run was called with a query containing INHERITS_VIA_METATABLE
+        calls = writer._run.call_args_list
+        meta_calls = [c for c in calls if "INHERITS_VIA_METATABLE" in str(c)]
+        assert len(meta_calls) >= 1, (
+            f"Expected INHERITS_VIA_METATABLE edge creation, got calls: "
+            f"{[str(c)[:80] for c in calls]}"
+        )
+
+
+# ───────────────────────────────────────────────────────────────
+# Task 2: Dynamic prefix boundary matching
+# ───────────────────────────────────────────────────────────────
+
+try:
+    from graph_builder.resolvers.dynamic_prefix_resolver import resolve_dynamic_prefixes, _is_prefix_match
+except ImportError:
+    resolve_dynamic_prefixes = None
+    _is_prefix_match = None
+
+
+class TestDynamicPrefixBoundary:
+    """Test that prefix matching respects namespace boundaries."""
+
+    def test_exact_prefix_match(self):
+        """'handlers.' should match 'ato.handlers.auth'."""
+        assert _is_prefix_match("handlers.", "ato.handlers.auth") is True
+
+    def test_prefix_at_start(self):
+        """'handlers.' should match 'handlers.auth'."""
+        assert _is_prefix_match("handlers.", "handlers.auth") is True
+
+    def test_substring_false_positive_rejected(self):
+        """'handler.' should NOT match 'my_handler_utils'."""
+        assert _is_prefix_match("handler.", "my_handler_utils") is False
+
+    def test_tasks_prefix_match(self):
+        """'tasks.' should match 'ato.tasks.pts_run'."""
+        assert _is_prefix_match("tasks.", "ato.tasks.pts_run") is True
+
+    def test_tasks_prefix_no_false_positive(self):
+        """'tasks.' should NOT match 'multitask_runner'."""
+        assert _is_prefix_match("tasks.", "multitask_runner") is False
+
+    def test_multi_segment_prefix(self):
+        """'common.base.' should match 'ato.common.base.handler'."""
+        assert _is_prefix_match("common.base.", "ato.common.base.handler") is True
+
+    def test_multi_segment_no_match(self):
+        """'common.base.' should NOT match 'uncommon.base.handler'."""
+        assert _is_prefix_match("common.base.", "uncommon.base.handler") is False
+
+    def test_single_segment_prefix(self):
+        """'redis' should match 'redis' exactly."""
+        assert _is_prefix_match("redis", "redis") is True
+
+    def test_prefix_without_trailing_dot(self):
+        """'handlers' (no trailing dot) should match 'handlers.auth'."""
+        assert _is_prefix_match("handlers", "ato.handlers.auth") is True
+
+    def test_full_integration_no_false_positives(self):
+        """End-to-end: dynamic import with prefix should not produce false positives."""
+        from graph_builder.parsers.base import FileAST, ImportRef
+
+        source_ast = FileAST(
+            file_path="/repo/dispatcher.lua", language="lua",
+            imports=[ImportRef(
+                module_string="handlers.*",
+                line=5,
+                import_type="require",
+                is_dynamic=True,
+                static_prefix="handlers.",
+            )],
+        )
+        # True match: module name contains "handlers" as a full segment
+        good_target = FileAST(
+            file_path="/repo/handlers/auth.lua", language="lua",
+            module_name="ato.handlers.auth",
+        )
+        # False positive: "handler" is a substring, not a segment
+        bad_target = FileAST(
+            file_path="/repo/my_handler_utils.lua", language="lua",
+            module_name="my_handler_utils",
+        )
+
+        all_asts = {
+            "/repo/dispatcher.lua": source_ast,
+            "/repo/handlers/auth.lua": good_target,
+            "/repo/my_handler_utils.lua": bad_target,
+        }
+        edges, stats = resolve_dynamic_prefixes(all_asts)
+
+        targets = {e["target_file"] for e in edges}
+        assert "/repo/handlers/auth.lua" in targets, "Should match ato.handlers.auth"
+        assert "/repo/my_handler_utils.lua" not in targets, \
+            "Should NOT match my_handler_utils (false positive)"
+
+    def test_resolve_returns_stats(self):
+        """resolve_dynamic_prefixes should return (edges, stats) tuple."""
+        all_asts = {}
+        result = resolve_dynamic_prefixes(all_asts)
+        # After change, should be (edges, stats) tuple
+        assert isinstance(result, tuple), "Should return (edges, stats) tuple"
+        edges, stats = result
+        assert isinstance(edges, list)
+        assert isinstance(stats, dict)
+
+
+# ───────────────────────────────────────────────────────────────
+# Task 3: Auto-detect base module methods
+# ───────────────────────────────────────────────────────────────
+
+try:
+    from graph_builder.resolvers.base_inheritance_resolver import (
+        resolve_base_inheritance, BASE_MODULE_METHODS,
+    )
+    from graph_builder.parsers.lua_parser import parse_lua_file
+except ImportError:
+    resolve_base_inheritance = None
+    BASE_MODULE_METHODS = None
+    parse_lua_file = None
+
+
+class TestBaseModuleAutoDetection:
+    """Test auto-detection of base module methods from ASTs."""
+
+    def test_auto_detect_finds_base_handler_methods(self):
+        """_auto_detect_base_modules should extract public methods from base module ASTs."""
+        from graph_builder.resolvers.base_inheritance_resolver import _auto_detect_base_modules
+
+        base_ast = parse_lua_file(str(LUA_FIXTURES / "base_handler.lua"))
+        # Simulate the module_name that would be assigned during full build
+        base_ast.module_name = "common.base.lua.handler"
+
+        all_asts = {str(LUA_FIXTURES / "base_handler.lua"): base_ast}
+        detected = _auto_detect_base_modules(all_asts)
+
+        assert "common.base.lua.handler" in detected, \
+            f"Should detect common.base.lua.handler, got: {list(detected.keys())}"
+        methods = detected["common.base.lua.handler"]
+        assert "validate" in methods, f"Should detect 'validate', got: {methods}"
+        assert "dispatch" in methods, f"Should detect 'dispatch', got: {methods}"
+        assert "handle_web_request" in methods
+        assert "add_handler_error" in methods
+        assert "parse_postdata" in methods
+
+    def test_auto_detect_excludes_private_helpers(self):
+        """Private/local functions should not appear in auto-detected methods."""
+        from graph_builder.resolvers.base_inheritance_resolver import _auto_detect_base_modules
+
+        base_ast = parse_lua_file(str(LUA_FIXTURES / "base_handler.lua"))
+        base_ast.module_name = "common.base.lua.handler"
+
+        all_asts = {str(LUA_FIXTURES / "base_handler.lua"): base_ast}
+        detected = _auto_detect_base_modules(all_asts)
+        methods = detected.get("common.base.lua.handler", set())
+        assert "_internal_helper" not in methods, \
+            "Private helper should not be in detected methods"
+
+    def test_auto_detect_used_in_resolution(self):
+        """resolve_base_inheritance should use auto-detected methods for resolution."""
+        base_ast = parse_lua_file(str(LUA_FIXTURES / "base_handler.lua"))
+        base_ast.module_name = "common.base.lua.handler"
+
+        child_ast = parse_lua_file(str(LUA_FIXTURES / "child_handler.lua"))
+        child_ast.module_name = "handlers.child"
+
+        all_asts = {
+            str(LUA_FIXTURES / "base_handler.lua"): base_ast,
+            str(LUA_FIXTURES / "child_handler.lua"): child_ast,
+        }
+        resolved = resolve_base_inheritance(all_asts)
+        assert resolved > 0, "Should resolve at least one base-inherited call"
+
+        # Check that self:validate was resolved to base
+        validate_calls = [c for c in child_ast.calls
+                         if "validate" in c.callee_string
+                         and c.resolved_module == "common.base.lua.handler"]
+        assert len(validate_calls) >= 1, \
+            f"self:validate should resolve to base handler, got: {[(c.callee_string, c.resolved_module) for c in child_ast.calls]}"
+
+    def test_hardcoded_fallback_used_when_no_ast(self):
+        """When base module ASTs are not in all_asts, hardcoded fallback should work."""
+        child_ast = parse_lua_file(str(LUA_FIXTURES / "child_handler.lua"))
+        child_ast.module_name = "handlers.child"
+
+        # Only child AST, no base AST -- should fall back to hardcoded
+        all_asts = {str(LUA_FIXTURES / "child_handler.lua"): child_ast}
+        resolved = resolve_base_inheritance(all_asts)
+        assert resolved > 0, "Hardcoded fallback should resolve base-inherited calls"
+
 
 from graph_builder.resolvers.python_resolver import PythonResolver
 
@@ -78,3 +371,69 @@ class TestPythonResolver:
         resolver = PythonResolver(str(PY_FIXTURES))
         stats = resolver.stats()
         assert "package_roots" in stats, f"stats should include package_roots, got: {stats}"
+
+
+from graph_builder.resolvers.go_resolver import GoResolver
+
+
+# ---------------------------------------------------------------
+# Task 5: Go go.mod parsing
+# ---------------------------------------------------------------
+
+class TestGoModParsing:
+    """Test go.mod parsing and module prefix stripping."""
+
+    def test_parse_go_mod_extracts_module_name(self):
+        """GoResolver should parse go.mod and extract 'pp-consumer' module name."""
+        resolver = GoResolver(str(GO_FIXTURES))
+        assert resolver._module_name == "pp-consumer", \
+            f"Expected module name 'pp-consumer', got: {resolver._module_name}"
+
+    def test_internal_import_resolves_with_module_prefix(self):
+        """'pp-consumer/common' should resolve by stripping module prefix."""
+        resolver = GoResolver(str(GO_FIXTURES))
+        result = resolver.resolve("pp-consumer/common")
+        assert result is not None, \
+            "'pp-consumer/common' should resolve to common/utils.go"
+        assert "common" in result
+
+    def test_internal_import_without_module_prefix_still_works(self):
+        """'common' should still resolve via suffix matching."""
+        resolver = GoResolver(str(GO_FIXTURES))
+        result = resolver.resolve("common")
+        assert result is not None, "'common' should resolve via suffix matching"
+
+    def test_external_dep_classified(self):
+        """External dependencies from go.mod require block should be classified."""
+        resolver = GoResolver(str(GO_FIXTURES))
+        assert resolver.is_external("github.com/aws/aws-sdk-go") is True
+        assert resolver.is_external("github.com/redis/go-redis/v9") is True
+        assert resolver.is_external("github.com/stretchr/testify") is True
+
+    def test_internal_not_classified_as_external(self):
+        """Internal imports should not be classified as external."""
+        resolver = GoResolver(str(GO_FIXTURES))
+        assert resolver.is_external("pp-consumer/common") is False
+        assert resolver.is_external("common") is False
+
+    def test_stdlib_not_classified_as_external(self):
+        """Stdlib imports should not be classified as external."""
+        resolver = GoResolver(str(GO_FIXTURES))
+        assert resolver.is_external("fmt") is False
+        assert resolver.is_external("net/http") is False
+
+    def test_go_mod_root_detected(self):
+        """The Go project root should be the directory containing go.mod."""
+        resolver = GoResolver(str(GO_FIXTURES))
+        assert resolver._go_project_root is not None
+        assert resolver._go_project_root == str(Path(GO_FIXTURES).resolve()), \
+            f"Go project root should be fixtures dir, got: {resolver._go_project_root}"
+
+    def test_stats_include_module_name(self):
+        """stats() should include module_name and external_deps count."""
+        resolver = GoResolver(str(GO_FIXTURES))
+        stats = resolver.stats()
+        assert "module_name" in stats, f"stats should include module_name, got: {stats}"
+        assert "external_deps" in stats, f"stats should include external_deps, got: {stats}"
+        assert stats["module_name"] == "pp-consumer"
+        assert stats["external_deps"] >= 10  # 10 deps in go.mod

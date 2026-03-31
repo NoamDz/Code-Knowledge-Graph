@@ -124,7 +124,8 @@ class GraphWriter:
                 fn.visibility = row.visibility,
                 fn.is_method = row.is_method,
                 fn.params = row.params,
-                fn.qualified_name = row.qualified_name
+                fn.qualified_name = row.qualified_name,
+                fn.decorators = row.decorators
         """,
         "Class": """
             UNWIND $batch AS row
@@ -134,7 +135,8 @@ class GraphWriter:
                 c.parent_class = row.parent_class,
                 c.mixins = row.mixins,
                 c.methods = row.methods,
-                c.qualified_name = row.qualified_name
+                c.qualified_name = row.qualified_name,
+                c.is_interface = row.is_interface
         """,
     }
 
@@ -156,12 +158,15 @@ class GraphWriter:
             MATCH (a:File {path: row.from_file})
             MATCH (b:File {path: row.to_file})
             MERGE (a)-[r:IMPORTS {module: row.module}]->(b)
+            SET r.local_binding = row.local_binding
         """,
         "CALLS_resolved": """
             UNWIND $batch AS row
             MERGE (a:Function {name: row.from_func, file: row.from_file})
             MERGE (b:Function {name: row.to_func, file: row.to_file})
-            MERGE (a)-[:CALLS {line: row.line, is_pcall: row.is_pcall}]->(b)
+            MERGE (a)-[:CALLS {line: row.line, is_pcall: row.is_pcall,
+                               resolution_confidence: row.resolution_confidence,
+                               classification: row.classification}]->(b)
         """,
         "CALLS_unresolved": """
             UNWIND $batch AS row
@@ -192,6 +197,7 @@ class GraphWriter:
             "is_method": func.is_method,
             "params": func.params,
             "qualified_name": func.qualified_name,
+            "decorators": func.decorators,
         }
         # Buffer the Function node
         self._buffer_node("Function", params)
@@ -211,6 +217,7 @@ class GraphWriter:
             "mixins": cls.mixins,
             "methods": cls.methods,
             "qualified_name": cls.qualified_name,
+            "is_interface": cls.is_interface,
         }
         # Buffer the Class node
         self._buffer_node("Class", params)
@@ -238,11 +245,13 @@ class GraphWriter:
 
     # --- Edge upserts (buffered) ---
 
-    def upsert_import(self, from_file: str, to_file: str, module_string: str):
+    def upsert_import(self, from_file: str, to_file: str, module_string: str,
+                      local_binding: str | None = None):
         self._buffer_edge("IMPORTS", {
             "from_file": from_file,
             "to_file": to_file,
             "module": module_string,
+            "local_binding": local_binding,
         })
 
     def upsert_unresolved_import(self, from_file: str, module_string: str, is_dynamic: bool = False):
@@ -260,7 +269,8 @@ class GraphWriter:
     def upsert_call(self, from_func: str, from_file: str,
                     to_func: str, to_file: str | None = None,
                     line: int = 0, is_pcall: bool = False,
-                    classification: str | None = None):
+                    classification: str | None = None,
+                    resolution_confidence: str | None = None):
         if to_file:
             self._buffer_edge("CALLS_resolved", {
                 "from_func": from_func,
@@ -269,6 +279,8 @@ class GraphWriter:
                 "to_file": to_file,
                 "line": line,
                 "is_pcall": is_pcall,
+                "resolution_confidence": resolution_confidence,
+                "classification": classification,
             })
         else:
             self._buffer_edge("CALLS_unresolved", {
@@ -300,13 +312,14 @@ class GraphWriter:
             """, phase=phase, location=location, lua_file=lua_file)
 
     def upsert_ctx_access(self, field_name: str, access_type: str,
-                           function: str, file_path: str, line: int):
+                           function: str, file_path: str, line: int,
+                           scope: str | None = None):
         edge_type = "CTX_WRITES" if access_type == "write" else "CTX_READS"
         self._run(f"""
             MERGE (k:ContextKey {{name: $field}})
             MERGE (fn:Function {{name: $func, file: $file}})
-            MERGE (fn)-[:{edge_type} {{line: $line}}]->(k)
-        """, field=field_name, func=function, file=file_path, line=line)
+            MERGE (fn)-[:{edge_type} {{line: $line, scope: $scope}}]->(k)
+        """, field=field_name, func=function, file=file_path, line=line, scope=scope)
 
     def upsert_shared_dict_access(self, dict_name: str, operation: str,
                                    function: str, file_path: str, line: int):
@@ -316,6 +329,15 @@ class GraphWriter:
             MERGE (fn)-[:USES_SHARED {operation: $op, line: $line}]->(d)
         """, dict=dict_name, op=operation, func=function,
              file=file_path, line=line)
+
+    def upsert_metatable_inheritance(self, child_file: str, parent_module: str,
+                                      table_var: str):
+        """Create an INHERITS_VIA_METATABLE edge from child File to parent Module."""
+        self._run("""
+            MERGE (child:File {path: $child_file})
+            MERGE (parent:Module {name: $parent_module})
+            MERGE (child)-[:INHERITS_VIA_METATABLE {table_var: $table_var}]->(parent)
+        """, child_file=child_file, parent_module=parent_module, table_var=table_var)
 
     def upsert_internal_redirect(self, source_function: str, source_file: str,
                                   target_path: str, redirect_type: str, line: int):
@@ -413,9 +435,14 @@ class GraphWriter:
         for imp in ast.imports:
             resolved_path = resolved_imports.get(imp.module_string)
             if resolved_path:
-                self.upsert_import(ast.file_path, resolved_path, imp.module_string)
+                self.upsert_import(ast.file_path, resolved_path, imp.module_string,
+                                   local_binding=imp.local_binding)
             else:
                 self.upsert_unresolved_import(ast.file_path, imp.module_string, imp.is_dynamic)
+
+        # Metatable inheritance (Lua-specific)
+        for table_var, parent_module in ast.metatable_parents.items():
+            self.upsert_metatable_inheritance(ast.file_path, parent_module, table_var)
 
         # Calls
         for call in ast.calls:
@@ -429,6 +456,7 @@ class GraphWriter:
                 to_func, to_file,
                 call.line, call.is_pcall_wrapped,
                 call.classification,
+                call.resolution_confidence,
             )
 
         # ngx.ctx accesses
@@ -436,6 +464,7 @@ class GraphWriter:
             self.upsert_ctx_access(
                 ctx.field_name, ctx.access_type,
                 ctx.function, ast.file_path, ctx.line,
+                scope=ctx.scope,
             )
 
         # ngx.shared accesses
