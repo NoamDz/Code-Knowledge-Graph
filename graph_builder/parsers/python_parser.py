@@ -225,6 +225,12 @@ def parse_python_file(file_path: str) -> FileAST:
             else:
                 func_qn = f"{_module_path}.{func_name}"
 
+        # Detect coroutine decorator (@tornado.gen.coroutine or @gen.coroutine)
+        is_coroutine = any(
+            d.endswith("gen.coroutine") or d.endswith("tornado.gen.coroutine")
+            for d in decorators
+        )
+
         ast.functions.append(FunctionDef(
             name=func_name,
             line=node.start_point[0] + 1,
@@ -234,6 +240,7 @@ def parse_python_file(file_path: str) -> FileAST:
             is_method=is_method,
             decorators=decorators,
             qualified_name=func_qn,
+            is_coroutine=is_coroutine,
         ))
 
     # --- Calls ---
@@ -258,6 +265,37 @@ def parse_python_file(file_path: str) -> FileAST:
             resolved_module=rm,
             resolved_function=rf,
         ))
+
+    # --- Dynamic dispatch: getattr() with string literal argument ---
+    for node in _walk_all(root, "call"):
+        func = node.child_by_field_name("function")
+        if not func:
+            continue
+        callee = _text(func, source)
+        if callee != "getattr":
+            continue
+
+        args = node.child_by_field_name("arguments")
+        if not args or args.named_child_count < 2:
+            continue
+
+        # First arg is the object, second arg is the attribute name
+        obj_arg = args.named_children[0]
+        attr_arg = args.named_children[1]
+
+        obj_text = _text(obj_arg, source)
+
+        # Only create dynamic call when attr name is a string literal
+        if attr_arg.type == "string":
+            attr_name = _text(attr_arg, source).strip("\"'")
+            enclosing = _find_enclosing(node, source)
+            dynamic_callee = f"{obj_text}.{attr_name}"
+            ast.calls.append(CallRef(
+                caller_function=enclosing,
+                callee_string=dynamic_callee,
+                line=node.start_point[0] + 1,
+                resolution_confidence="dynamic_getattr",
+            ))
 
     # --- Exports (top-level public functions and classes) ---
     for func in ast.functions:
