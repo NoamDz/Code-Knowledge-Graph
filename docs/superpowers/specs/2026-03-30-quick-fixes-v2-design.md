@@ -1,7 +1,7 @@
 # Quick Fixes V2 — Design Spec
 
 **Date:** 2026-03-30
-**Goal:** Fix known issues that don't require BOB investigation: graph schema gaps, dynamic prefix false positives, base inheritance auto-detection, Python package root detection, and missing edge properties.
+**Goal:** Fix resolver/schema issues: graph schema gaps (6 missing edge properties), dynamic prefix false positives, base inheritance auto-detection, Python package root detection, Go go.mod parsing for ~90% import resolution, and Ruby Gemfile parsing for gem classification.
 
 ---
 
@@ -170,6 +170,137 @@ This won't increase resolution rate but will reclassify unresolved stdlib import
 
 ---
 
+## 6. Go go.mod Parsing for Internal Package Resolution
+
+### Problem
+
+Go import resolution is 60.2% (308/512). The resolver uses suffix matching on directory paths without understanding Go's module system. BOB confirmed:
+- Module name: `pp-consumer` (from `src/core/model_prediction/server/go.mod`)
+- No vendor/ directory
+- All internal imports use `pp-consumer/` prefix (e.g., `pp-consumer/common/db`, `pp-consumer/config`)
+
+The resolver can't match `"pp-consumer/common/utils"` because it tries to find a directory `pp-consumer/common/utils/` which doesn't exist — the actual directory is `common/utils/` relative to the Go project root.
+
+### Solution
+
+Parse `go.mod` to extract the module name, then strip it from import paths before suffix matching:
+
+1. **Find and parse go.mod:**
+```python
+def _parse_go_mod(self) -> str | None:
+    """Find go.mod and extract module name."""
+    for go_mod in self.repo_root.rglob("go.mod"):
+        with open(go_mod) as f:
+            for line in f:
+                if line.startswith("module "):
+                    return line.split()[1].strip()
+    return None
+```
+
+2. **Strip module prefix during resolution:**
+```python
+def resolve(self, import_path, from_file=None):
+    if self.is_stdlib(import_path):
+        return "__go_stdlib__"
+
+    # Strip module prefix for internal packages
+    if self._module_name and import_path.startswith(self._module_name + "/"):
+        local_path = import_path[len(self._module_name) + 1:]
+    else:
+        local_path = import_path
+
+    # Existing suffix matching on local_path
+    parts = local_path.split("/")
+    for i in range(len(parts)):
+        suffix = "/".join(parts[i:])
+        if suffix in self._index:
+            # return first non-test .go file
+            ...
+```
+
+3. **Build index relative to go.mod location** — the Go project root is the directory containing go.mod, not necessarily the repo root. Index directories relative to that root.
+
+4. **Extract external dependencies from `require` blocks** — classify imports matching require entries as external (expected unresolved).
+
+**Go external dependencies from BOB:**
+```
+github.com/aws/aws-sdk-go
+github.com/go-redis/redismock/v9
+github.com/go-sql-driver/mysql
+github.com/lithammer/shortuuid/v3
+github.com/redis/go-redis/v9
+github.com/stretchr/objx
+github.com/stretchr/testify
+github.com/timandy/routine
+golang.org/x/sys
+gopkg.in/alexcesaro/statsd.v2
+```
+
+**Implementation file:** `graph_builder/resolvers/go_resolver.py`
+
+**Expected impact:** Go import resolution from 60.2% to ~85-90%. Internal packages like `pp-consumer/common/utils` correctly resolved. External dependencies correctly classified.
+
+---
+
+## 7. Ruby Gemfile Parsing for Import Classification
+
+### Problem
+
+Ruby import resolution is 42.3% (145/343). Most unresolved are external gems — correct behavior, but we can't distinguish gems from truly unresolved imports.
+
+BOB confirmed all 3 Ruby components share the same Gemfile with 10 gems:
+- activesupport, aws-sdk-s3, cassandra-driver, concurrent-ruby, dalli, mysql2, oj, redis, rest-client, statsd-instrument
+
+### Solution
+
+Parse Gemfile to build a known gems set and classify unresolved imports:
+
+```python
+KNOWN_GEMS = {
+    "active_support", "activesupport",
+    "aws-sdk-s3", "aws/sdk", "Aws",
+    "cassandra-driver", "cassandra",
+    "concurrent-ruby", "concurrent",
+    "dalli",
+    "mysql2",
+    "oj",
+    "redis",
+    "rest-client", "rest_client", "RestClient",
+    "statsd-instrument", "statsd", "StatsD",
+    # Dev/test gems:
+    "pry", "rspec", "rubocop",
+}
+
+def is_gem(self, module_string: str) -> bool:
+    """Check if import is a known gem."""
+    base = module_string.split("/")[0].split("::")[0]
+    return base.lower().replace("-", "_") in {g.lower().replace("-", "_") for g in KNOWN_GEMS}
+```
+
+In `resolve()`, when an import is unresolved, check `is_gem()` before returning None:
+- If gem → return `"__ruby_gem__"` sentinel (like `"__ruby_stdlib__"`)
+- If not gem and not stdlib → truly unresolved
+
+Also scan for `Gemfile` files in the repo and parse them dynamically:
+```python
+def _parse_gemfiles(self) -> set[str]:
+    """Find all Gemfiles and extract gem names."""
+    gems = set()
+    for gemfile in self.repo_root.rglob("Gemfile"):
+        with open(gemfile) as f:
+            for line in f:
+                match = re.match(r"^\s*gem\s+['\"]([^'\"]+)['\"]", line)
+                if match:
+                    gems.add(match.group(1))
+    return gems
+```
+
+**Implementation file:** `graph_builder/resolvers/ruby_resolver.py`
+
+**Expected impact:** Ruby import classification improves. Unresolved imports split into gems (expected) vs truly unresolved (investigation targets). Resolution rate stays ~42.3% but the 57.7% unresolved is now explained.
+
+---
+
 ## 5. Update Schema to Match New Properties
 
 Add to `schema.py`:
@@ -188,7 +319,22 @@ Add to `schema.py`:
 2. **Dynamic prefix:** Test boundary matching with known false-positive cases
 3. **Base inheritance:** Compare auto-detected vs hardcoded methods on test fixtures
 4. **Python package root:** Test with nested package structure fixture
-5. **Schema:** Verify indexes created for new types
+5. **Go go.mod:** Test with fixture containing `pp-consumer/common/utils` import → resolves
+6. **Ruby Gemfile:** Test that `redis` import → `__ruby_gem__`, unknown import → None
+7. **Schema:** Verify indexes created for new types
+
+---
+
+## Expected Impact Summary
+
+| Fix | Metric | Before | After |
+|-----|--------|--------|-------|
+| Edge properties | Graph queryability | 6 fields lost | All written |
+| Dynamic prefix | False positive edges | Unknown | Eliminated |
+| Base inheritance | Auto-detection | Hardcoded 31 methods | Dynamic from AST |
+| Python package root | Import classification | 36.7% resolved, rest unknown | Stdlib/third-party/internal split |
+| Go go.mod | Go import resolution | 60.2% | ~85-90% |
+| Ruby Gemfile | Ruby import classification | 42.3% resolved, rest unknown | Gem/stdlib/internal split |
 
 ---
 
@@ -201,5 +347,7 @@ Add to `schema.py`:
 | `graph_builder/resolvers/dynamic_prefix_resolver.py` | Replace `in` with boundary-aware matching |
 | `graph_builder/resolvers/base_inheritance_resolver.py` | Add auto-detection, keep hardcoded as fallback |
 | `graph_builder/resolvers/python_resolver.py` | Add package root detection, Python stdlib set |
+| `graph_builder/resolvers/go_resolver.py` | Parse go.mod, strip module prefix, classify external deps |
+| `graph_builder/resolvers/ruby_resolver.py` | Parse Gemfile, classify gem imports |
 | `graph_builder/main.py` | Wire metatable inheritance edges into ingestion |
 | `graph_builder/tests/test_quick_fixes_v2.py` | New test file |
