@@ -16,6 +16,7 @@ Usage:
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 # Known Ruby stdlib modules (ships with Ruby, no gem install needed)
@@ -33,6 +34,17 @@ _RUBY_STDLIB = {
     "weakref", "delegate", "mkmf", "racc", "psych",
 }
 
+# Common aliases for gems where the require name differs from gem name.
+# Maps normalized (lowercase, underscored) require base -> True
+_KNOWN_GEM_ALIASES: dict[str, str] = {
+    "active_support": "activesupport",
+    "rest_client": "rest-client",
+    "restclient": "rest-client",
+    "statsd": "statsd-instrument",
+    "concurrent": "concurrent-ruby",
+    "aws": "aws-sdk-s3",
+}
+
 
 class RubyResolver:
     """Resolves Ruby require/require_relative strings to file paths."""
@@ -40,7 +52,9 @@ class RubyResolver:
     def __init__(self, repo_root: str):
         self.repo_root = Path(repo_root).resolve()
         self._index: dict[str, str] = {}
+        self._parsed_gems: set[str] = set()
         self._build_index()
+        self._parse_gemfiles()
 
     def _build_index(self):
         """Index all .rb files by relative path (without .rb extension)."""
@@ -52,6 +66,47 @@ class RubyResolver:
             # Index by relative path without .rb
             key = rel.removesuffix(".rb")
             self._index[key] = str(rb_file)
+
+    def _parse_gemfiles(self):
+        """Find all Gemfiles in the repo and extract gem names."""
+        for gemfile in self.repo_root.rglob("Gemfile"):
+            # Skip vendor directories
+            if "vendor" in gemfile.parts or ".bundle" in gemfile.parts:
+                continue
+            try:
+                with open(gemfile, encoding="utf-8", errors="replace") as f:
+                    for line in f:
+                        match = re.match(r"^\s*gem\s+['\"]([^'\"]+)['\"]", line)
+                        if match:
+                            self._parsed_gems.add(match.group(1))
+            except OSError:
+                pass
+
+    def is_gem(self, module_string: str) -> bool:
+        """Check if a require string is a known gem (from Gemfile or aliases).
+
+        Normalizes the base name (lowercase, replace '-' with '_') and checks
+        against parsed Gemfile gems and known aliases.
+
+        Args:
+            module_string: e.g., "redis", "active_support/core_ext"
+
+        Returns:
+            True if the import is a known gem.
+        """
+        base = module_string.split("/")[0].split("::")[0]
+        normalized = base.lower().replace("-", "_")
+
+        # Check direct match in parsed gems (also normalized)
+        normalized_gems = {g.lower().replace("-", "_") for g in self._parsed_gems}
+        if normalized in normalized_gems:
+            return True
+
+        # Check known aliases
+        if normalized in _KNOWN_GEM_ALIASES:
+            return True
+
+        return False
 
     def is_stdlib(self, module_string: str) -> bool:
         """Check if a require string is a Ruby stdlib module."""
@@ -96,7 +151,11 @@ class RubyResolver:
             if key.endswith(f"/{module_string}") or key == module_string:
                 return path
 
-        return None  # external gem
+        # Check if it's a known gem before returning None
+        if self.is_gem(module_string):
+            return "__ruby_gem__"
+
+        return None  # truly unresolved
 
     def resolve_dynamic_loading(self, all_asts: dict) -> list[dict]:
         """Detect Dir.glob/Dir.entries/class_eval loading patterns and return edges.
@@ -149,4 +208,7 @@ class RubyResolver:
         return edges
 
     def stats(self) -> dict:
-        return {"indexed_files": len(self._index)}
+        return {
+            "indexed_files": len(self._index),
+            "parsed_gems": len(self._parsed_gems),
+        }

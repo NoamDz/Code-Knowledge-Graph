@@ -1,0 +1,18 @@
+source 'https://rubygems.org'
+
+gem 'activesupport', '~> 7.0'
+gem 'aws-sdk-s3'
+gem 'cassandra-driver'
+gem 'concurrent-ruby'
+gem 'dalli'
+gem 'mysql2'
+gem 'oj'
+gem 'redis', '~> 5.0'
+gem 'rest-client'
+gem 'statsd-instrument', '~> 3.0'
+
+group :development, :test do
+  gem 'pry'
+  gem 'rspec', '~> 3.0'
+  gem 'rubocop'
+end
