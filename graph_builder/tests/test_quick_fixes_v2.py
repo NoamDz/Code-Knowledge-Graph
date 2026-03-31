@@ -439,6 +439,103 @@ class TestGoModParsing:
         assert stats["external_deps"] >= 10  # 10 deps in go.mod
 
 
+class TestGoResolverParentRepoRoot:
+    """Test that GoResolver works when repo_root is a parent of go.mod directory.
+
+    This reproduces the real-world scenario where the overall repository root
+    (e.g. ``src/``) is an ancestor of the Go project subdirectory
+    (e.g. ``src/core/model_prediction/server/``).  Before the fix, index keys
+    were computed relative to repo_root and ended up as
+    ``core/model_prediction/server/common/utils`` instead of ``common/utils``,
+    so stripped import paths never matched.
+    """
+
+    def test_resolve_with_parent_repo_root(self, tmp_path):
+        """Import resolution should work when repo_root is a parent of go.mod."""
+        # Build a directory tree:  repo_root / subdir / go.mod + common/utils.go
+        subdir = tmp_path / "core" / "server"
+        common_dir = subdir / "common"
+        common_dir.mkdir(parents=True)
+
+        # go.mod lives in the subdir
+        (subdir / "go.mod").write_text("module my-service\n\ngo 1.22\n")
+        # A Go package under the module
+        (common_dir / "utils.go").write_text("package common\n\nfunc DoStuff() {}\n")
+        # A top-level Go file in subdir
+        (subdir / "main.go").write_text("package main\n\nimport \"my-service/common\"\n")
+
+        resolver = GoResolver(str(tmp_path))
+
+        # go.mod should be found
+        assert resolver._module_name == "my-service"
+        assert resolver._go_project_root == str(subdir.resolve())
+
+        # The critical assertion: "my-service/common" must resolve
+        result = resolver.resolve("my-service/common")
+        assert result is not None, (
+            f"'my-service/common' should resolve when repo_root is a parent. "
+            f"Index keys: {list(resolver._index.keys())}"
+        )
+        assert "common" in result
+
+        # Also check bare suffix matching
+        result_bare = resolver.resolve("common")
+        assert result_bare is not None, (
+            f"'common' should resolve via suffix matching. "
+            f"Index keys: {list(resolver._index.keys())}"
+        )
+
+    def test_index_keys_relative_to_go_project_root(self, tmp_path):
+        """Index keys should be relative to go_project_root, not repo_root."""
+        subdir = tmp_path / "deep" / "nested" / "project"
+        pkg_dir = subdir / "internal" / "auth"
+        pkg_dir.mkdir(parents=True)
+
+        (subdir / "go.mod").write_text("module example.com/myapp\n\ngo 1.22\n")
+        (pkg_dir / "auth.go").write_text("package auth\n\nfunc Login() {}\n")
+
+        resolver = GoResolver(str(tmp_path))
+
+        # Index key should be "internal/auth", NOT "deep/nested/project/internal/auth"
+        assert "internal/auth" in resolver._index, (
+            f"Expected 'internal/auth' in index, got: {list(resolver._index.keys())}"
+        )
+        bad_key = "deep/nested/project/internal/auth"
+        assert bad_key not in resolver._index, (
+            f"Index should NOT contain repo_root-relative key '{bad_key}'"
+        )
+
+    def test_same_package_linking_with_parent_repo_root(self, tmp_path):
+        """get_package_siblings should work when repo_root is a parent."""
+        subdir = tmp_path / "services" / "api"
+        handler_dir = subdir / "handlers"
+        handler_dir.mkdir(parents=True)
+
+        (subdir / "go.mod").write_text("module api-service\n\ngo 1.22\n")
+        (handler_dir / "user.go").write_text("package handlers\n\nfunc GetUser() {}\n")
+        (handler_dir / "order.go").write_text("package handlers\n\nfunc GetOrder() {}\n")
+
+        resolver = GoResolver(str(tmp_path))
+        siblings = resolver.get_package_siblings(str(handler_dir / "user.go"))
+        sibling_names = [Path(s).name for s in siblings]
+        assert "order.go" in sibling_names
+
+    def test_fallback_without_go_mod(self, tmp_path):
+        """When no go.mod exists, scanning should fall back to repo_root."""
+        pkg_dir = tmp_path / "mypkg"
+        pkg_dir.mkdir()
+        (pkg_dir / "main.go").write_text("package main\n")
+
+        resolver = GoResolver(str(tmp_path))
+
+        assert resolver._go_project_root is None
+        assert resolver._module_name is None
+        # Index should still work, scanning from repo_root
+        assert "mypkg" in resolver._index, (
+            f"Expected 'mypkg' in index without go.mod, got: {list(resolver._index.keys())}"
+        )
+
+
 from graph_builder.resolvers.ruby_resolver import RubyResolver
 
 

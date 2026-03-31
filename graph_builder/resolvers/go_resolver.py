@@ -72,16 +72,24 @@ class GoResolver:
             break  # Use the first go.mod found
 
     def _build_index(self):
-        """Build an index of Go package directories and per-directory file lists."""
-        for go_file in self.repo_root.rglob("*.go"):
+        """Build an index of Go package directories and per-directory file lists.
+
+        When a go.mod is found, index keys are computed relative to the Go
+        project root (the directory containing go.mod) so that stripped import
+        paths like ``common/utils`` match correctly.  Falls back to repo_root
+        when no go.mod is present.
+        """
+        # Use go_project_root if available, otherwise repo_root
+        scan_root = Path(self._go_project_root) if self._go_project_root else self.repo_root
+        for go_file in scan_root.rglob("*.go"):
             # Skip vendor / node_modules / .git
-            parts = go_file.relative_to(self.repo_root).parts
+            parts = go_file.relative_to(scan_root).parts
             if any(p in ("vendor", "node_modules", ".git") for p in parts):
                 continue
 
             dir_path = str(go_file.parent)
             # Use the relative directory path as potential import suffix
-            rel_dir = str(go_file.parent.relative_to(self.repo_root)).replace("\\", "/")
+            rel_dir = str(go_file.parent.relative_to(scan_root)).replace("\\", "/")
 
             # Register this directory for suffix-based import resolution
             if rel_dir not in self._index:
