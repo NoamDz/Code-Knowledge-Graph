@@ -128,7 +128,7 @@ def test_dynamic_prefix_expansion():
         "src/ato/tasks/assess.lua": task2,
         "src/lib/store.lua": unrelated,
     }
-    edges = resolve_dynamic_prefixes(all_asts)
+    edges, stats = resolve_dynamic_prefixes(all_asts)
     assert len(edges) >= 2
     targets = [e["target_file"] for e in edges]
     assert "src/ato/tasks/pts_run.lua" in targets
@@ -158,7 +158,7 @@ def test_no_dynamic_prefix_no_edges():
         "src/main.lua": ast,
         "src/lib/utils.lua": other,
     }
-    edges = resolve_dynamic_prefixes(all_asts)
+    edges, stats = resolve_dynamic_prefixes(all_asts)
     assert len(edges) == 0
 
 

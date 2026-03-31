@@ -279,9 +279,10 @@ def build(ctx):
 
     # Step 4f: Dynamic prefix expansion
     from .resolvers.dynamic_prefix_resolver import resolve_dynamic_prefixes
-    dynamic_edges = resolve_dynamic_prefixes(all_asts)
+    dynamic_edges, dynamic_stats = resolve_dynamic_prefixes(all_asts)
     if dynamic_edges:
-        click.echo(f"  Dynamic prefix expansion: {len(dynamic_edges)} potential imports")
+        click.echo(f"  Dynamic prefix expansion: {len(dynamic_edges)} potential imports "
+                   f"({dynamic_stats['prefixes_processed']} prefixes processed)")
 
     # Step 4g: Resolve JS ERB render-chain inclusions
     click.echo("Resolving JS ERB render-chain inclusions...")
