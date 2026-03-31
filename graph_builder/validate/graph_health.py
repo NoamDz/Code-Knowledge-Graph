@@ -123,6 +123,11 @@ def _resolve_imports(all_asts: dict[str, FileAST], resolvers: dict) -> dict[str,
                 if ast.language == "go" and hasattr(resolver, "is_stdlib") and resolver.is_stdlib(imp.module_string):
                     file_resolved[imp.module_string] = "<go-stdlib>"
                     continue
+                # Python stdlib imports (os, sys, json, etc.) won't resolve to
+                # repo files — classify them as resolved before trying.
+                if ast.language == "python" and hasattr(resolver, "is_stdlib") and resolver.is_stdlib(imp.module_string):
+                    file_resolved[imp.module_string] = "<python-stdlib>"
+                    continue
                 if ast.language == "ruby":
                     file_resolved[imp.module_string] = resolver.resolve(
                         imp.module_string, file_path, import_type=imp.import_type,
