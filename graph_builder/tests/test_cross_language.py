@@ -285,3 +285,31 @@ def test_writer_has_upsert_defines_constant():
     assert "file_path" in params
     assert "constant_name" in params
     assert "language" in params
+
+
+# --- Pipeline wiring tests ---
+
+def test_main_imports_cross_language_resolver():
+    """main.py can import the cross_language_resolver functions."""
+    from graph_builder.resolvers.cross_language_resolver import (
+        resolve_shared_structures,
+        resolve_shared_constants,
+    )
+    assert callable(resolve_shared_structures)
+    assert callable(resolve_shared_constants)
+
+
+def test_resolve_shared_structures_returns_list():
+    """resolve_shared_structures returns a list even with empty input."""
+    from graph_builder.resolvers.cross_language_resolver import resolve_shared_structures
+    result = resolve_shared_structures({})
+    assert isinstance(result, list)
+    assert len(result) == 0
+
+
+def test_resolve_shared_constants_returns_list():
+    """resolve_shared_constants returns a list even with empty input."""
+    from graph_builder.resolvers.cross_language_resolver import resolve_shared_constants
+    result = resolve_shared_constants({})
+    assert isinstance(result, list)
+    assert len(result) == 0

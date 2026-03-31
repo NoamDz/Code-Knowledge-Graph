@@ -317,6 +317,18 @@ def build(ctx):
                f"DB accesses: {total_db}, AWS accesses: {total_aws}, "
                f"Config edges: {len(config_edges)}")
 
+    # Step 4i: Cross-language data flow detection
+    click.echo("Detecting cross-language shared structures and constants...")
+    from .resolvers.cross_language_resolver import (
+        resolve_shared_structures,
+        resolve_shared_constants,
+    )
+    structure_edges = resolve_shared_structures(all_asts)
+    constant_edges = resolve_shared_constants(all_asts)
+    if structure_edges or constant_edges:
+        click.echo(f"  Shared structures: {len(structure_edges)} edges, "
+                   f"shared constants: {len(constant_edges)} edges")
+
     # Step 5: Ingest into Memgraph
     click.echo("Ingesting into Memgraph...")
     try:
@@ -425,6 +437,31 @@ def build(ctx):
 
         for edge in config_edges:
             writer.upsert_config_reads(edge["file"], edge["config"])
+
+        # Ingest cross-language shared structure edges
+        seen_structures: set[str] = set()
+        for edge in structure_edges:
+            struct_name = edge["structure_name"]
+            if struct_name not in seen_structures:
+                writer.upsert_shared_data_structure(
+                    struct_name, edge["fields"], edge["serialization"],
+                )
+                seen_structures.add(struct_name)
+            writer.upsert_defines_structure(
+                edge["file"], struct_name,
+                edge["language"], edge["field_count"],
+            )
+
+        # Ingest cross-language shared constant edges
+        seen_constants: set[str] = set()
+        for edge in constant_edges:
+            const_name = edge["constant_name"]
+            if const_name not in seen_constants:
+                writer.upsert_shared_constant(const_name, edge["values"])
+                seen_constants.add(const_name)
+            writer.upsert_defines_constant(
+                edge["file"], const_name, edge["language"],
+            )
 
         click.echo(f"  {writer.write_count} graph writes")
         writer.close()

@@ -240,6 +240,72 @@ def parse_ruby_file(file_path: str) -> FileAST:
             line=call_node.start_point[0] + 1,
         ))
 
+    # --- Dynamic dispatch: send() and public_send() ---
+    for call_node in _walk_all(root, "call"):
+        method = call_node.child_by_field_name("method")
+        if not method:
+            continue
+        method_name = _text(method, source)
+        if method_name not in ("send", "public_send"):
+            continue
+
+        args = call_node.child_by_field_name("arguments")
+        if not args or args.named_child_count == 0:
+            continue
+        first_arg = args.named_children[0]
+
+        target_method = None
+        if first_arg.type == "simple_symbol":
+            # send(:process_data, data) -> "process_data"
+            target_method = _text(first_arg, source).lstrip(":")
+        elif first_arg.type == "string":
+            content = _get_string_value(first_arg, source)
+            # Only use if it's a simple string (no interpolation)
+            if "#{" not in content:
+                target_method = content
+
+        if target_method:
+            enclosing = _find_enclosing(call_node, source)
+            ast.calls.append(CallRef(
+                caller_function=enclosing,
+                callee_string=target_method,
+                line=call_node.start_point[0] + 1,
+                resolution_confidence="dynamic_send",
+            ))
+
+    # --- Metaprogramming: define_method with literal symbol/string ---
+    for call_node in _walk_all(root, "call"):
+        method = call_node.child_by_field_name("method")
+        if not method:
+            continue
+        if _text(method, source) != "define_method":
+            continue
+
+        args = call_node.child_by_field_name("arguments")
+        if not args or args.named_child_count == 0:
+            continue
+        first_arg = args.named_children[0]
+
+        sym_name = None
+        if first_arg.type == "simple_symbol":
+            sym_name = _text(first_arg, source).lstrip(":")
+        elif first_arg.type == "string":
+            content = _get_string_value(first_arg, source)
+            if "#{" not in content:
+                sym_name = content
+
+        if sym_name:
+            dm_enclosing = _find_enclosing_module_or_class(call_node, source)
+            dm_qn = f"{dm_enclosing}#{sym_name}" if dm_enclosing else None
+            ast.functions.append(FunctionDef(
+                name=sym_name,
+                line=call_node.start_point[0] + 1,
+                line_end=call_node.end_point[0] + 1,
+                visibility="dynamic",
+                is_method=True,
+                qualified_name=dm_qn,
+            ))
+
     # --- Module and nested class/module detection ---
     def _find_nested_types(node, source, ast, namespace):
         """Recursively find classes and modules, tracking full namespace."""
