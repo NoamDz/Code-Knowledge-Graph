@@ -19,7 +19,7 @@ from pathlib import Path
 from tree_sitter import Language, Parser
 import tree_sitter_go as tsgo
 
-from .base import FileAST, FunctionDef, ImportRef, CallRef, ClassDef, HttpCallRef
+from .base import FileAST, FunctionDef, ImportRef, CallRef, ClassDef, HttpCallRef, ChannelAccess
 
 GO = Language(tsgo.language())
 
@@ -83,6 +83,111 @@ def _extract_params(node, source: bytes) -> list[str]:
 def _is_exported(name: str) -> bool:
     """Go rule: exported names start with an uppercase letter."""
     return bool(name) and name[0].isupper()
+
+
+def _extract_channel_accesses(root, source: bytes, ast: FileAST):
+    """Extract Go channel operations: send, receive, make(chan), close()."""
+
+    # 1. Send operations: ch <- value (send_statement in tree-sitter-go)
+    for node in _walk_all(root, "send_statement"):
+        # The channel is the left side of <-
+        ch_node = node.children[0] if node.child_count > 0 else None
+        if ch_node:
+            ch_name = _text(ch_node, source)
+            enclosing = _find_enclosing(node, source)
+            ast.channel_accesses.append(ChannelAccess(
+                channel_name=ch_name,
+                operation="send",
+                function=enclosing,
+                line=node.start_point[0] + 1,
+            ))
+
+    # 2. Receive operations: <-ch (unary_expression with <- operator)
+    for node in _walk_all(root, "unary_expression"):
+        op = node.child_by_field_name("operator")
+        if not op:
+            # Try checking first child for <- operator
+            if node.child_count >= 2 and _text(node.children[0], source) == "<-":
+                operand = node.children[1]
+                ch_name = _text(operand, source)
+                enclosing = _find_enclosing(node, source)
+                ast.channel_accesses.append(ChannelAccess(
+                    channel_name=ch_name,
+                    operation="receive",
+                    function=enclosing,
+                    line=node.start_point[0] + 1,
+                ))
+            continue
+        if _text(op, source) == "<-":
+            operand = node.child_by_field_name("operand")
+            if operand:
+                ch_name = _text(operand, source)
+                enclosing = _find_enclosing(node, source)
+                ast.channel_accesses.append(ChannelAccess(
+                    channel_name=ch_name,
+                    operation="receive",
+                    function=enclosing,
+                    line=node.start_point[0] + 1,
+                ))
+
+    # 3. make(chan Type) -- channel creation
+    for call_node in _walk_all(root, "call_expression"):
+        func = call_node.child_by_field_name("function")
+        if not func or _text(func, source) != "make":
+            continue
+        args = call_node.child_by_field_name("arguments")
+        if not args or args.named_child_count < 1:
+            continue
+        first_arg = args.named_children[0]
+        first_text = _text(first_arg, source)
+        if first_arg.type == "channel_type" or first_text.startswith("chan "):
+            # Try to get the channel variable name from assignment
+            ch_name = _get_make_chan_name(call_node, source)
+            element_type = first_text.replace("chan ", "").strip()
+            enclosing = _find_enclosing(call_node, source)
+            ast.channel_accesses.append(ChannelAccess(
+                channel_name=ch_name,
+                operation="create",
+                function=enclosing,
+                line=call_node.start_point[0] + 1,
+                element_type=element_type if element_type else None,
+            ))
+
+    # 4. close(ch) -- channel close
+    for call_node in _walk_all(root, "call_expression"):
+        func = call_node.child_by_field_name("function")
+        if not func or _text(func, source) != "close":
+            continue
+        args = call_node.child_by_field_name("arguments")
+        if not args or args.named_child_count < 1:
+            continue
+        ch_name = _text(args.named_children[0], source)
+        enclosing = _find_enclosing(call_node, source)
+        ast.channel_accesses.append(ChannelAccess(
+            channel_name=ch_name,
+            operation="close",
+            function=enclosing,
+            line=call_node.start_point[0] + 1,
+        ))
+
+
+def _get_make_chan_name(call_node, source: bytes) -> str:
+    """Try to extract the variable name for a make(chan) call from assignment context."""
+    parent = call_node.parent
+    if parent and parent.type == "short_var_declaration":
+        left = parent.child_by_field_name("left")
+        if left:
+            return _text(left, source)
+    if parent and parent.type == "assignment_statement":
+        left = parent.child_by_field_name("left")
+        if left:
+            return _text(left, source)
+    # Inside a composite literal (struct initialization)
+    if parent and parent.type == "keyed_element":
+        key = parent.children[0] if parent.child_count > 0 else None
+        if key:
+            return _text(key, source)
+    return "<anonymous>"
 
 
 def parse_go_file(file_path: str) -> FileAST:
@@ -244,13 +349,31 @@ def parse_go_file(file_path: str) -> FileAST:
         if _is_exported(method_name):
             ast.exports.append(method_name)
 
-    # --- Calls ---
+    # --- Calls (with goroutine and defer detection) ---
     for call_node in _walk_all(root, "call_expression"):
         func = call_node.child_by_field_name("function")
         if not func:
             continue
         callee = _text(func, source)
         enclosing = _find_enclosing(call_node, source)
+
+        # Detect goroutine and defer context
+        is_goroutine = False
+        is_deferred = False
+        parent = call_node.parent
+        # Walk up to find go_statement or defer_statement
+        # The call may be directly inside go/defer, or inside a func literal inside go/defer
+        while parent:
+            if parent.type == "go_statement":
+                is_goroutine = True
+                break
+            if parent.type == "defer_statement":
+                is_deferred = True
+                break
+            # Stop at function boundaries (don't leak go/defer from outer functions)
+            if parent.type in ("function_declaration", "method_declaration"):
+                break
+            parent = parent.parent
 
         rm, rf = None, None
         if "." in callee:
@@ -265,6 +388,8 @@ def parse_go_file(file_path: str) -> FileAST:
             line=call_node.start_point[0] + 1,
             resolved_module=rm,
             resolved_function=rf,
+            is_goroutine=is_goroutine,
+            is_deferred=is_deferred,
         ))
 
         # --- HTTP handler detection ---
@@ -296,6 +421,9 @@ def parse_go_file(file_path: str) -> FileAST:
                     if network == "unix":
                         socket_path = _text(second_arg, source).strip('"')
                         ast.warnings.append(f"unix_socket:{socket_path}")
+
+    # --- Channel operations ---
+    _extract_channel_accesses(root, source, ast)
 
     return ast
 
