@@ -39,6 +39,7 @@ class FunctionDef:
     is_method: bool = False       # uses : syntax (self param)
     decorators: list[str] = field(default_factory=list)  # Python/@decorators
     qualified_name: str | None = None  # fully-qualified name (e.g., "module.Class.method")
+    is_coroutine: bool = False    # Tornado @gen.coroutine, Lua coroutine.wrap target
 
 
 @dataclass
@@ -64,6 +65,8 @@ class CallRef:
     resolved_file_path: str | None = None
     resolution_confidence: str | None = None   # "binding", "self", "global_unique"
     classification: str | None = None  # "builtin", "external", "dynamic", "truly_unresolved", or None (resolved)
+    is_goroutine: bool = False    # Go: call is spawned via `go` keyword
+    is_deferred: bool = False     # Go: call is deferred via `defer` keyword
 
 
 @dataclass
@@ -115,6 +118,16 @@ class HttpCallRef:
     method: str                   # "GET", "POST", etc. or "unknown"
     function: str                 # which function does this
     line: int
+
+
+@dataclass
+class ChannelAccess:
+    """A Go channel operation (send, receive, create, close)."""
+    channel_name: str
+    operation: str         # "send", "receive", "create", "close"
+    function: str
+    line: int
+    element_type: str | None = None   # e.g., "*Task", "error"
 
 
 @dataclass
@@ -201,6 +214,9 @@ class FileAST:
 
     # AWS service access (SQS, Kinesis, S3)
     aws_accesses: list[AwsServiceAccess] = field(default_factory=list)
+
+    # Go channel operations
+    channel_accesses: list[ChannelAccess] = field(default_factory=list)
 
     # Metatable inheritance (Lua-specific)
     metatable_parents: dict[str, str] = field(default_factory=dict)  # child_table → parent_module_string

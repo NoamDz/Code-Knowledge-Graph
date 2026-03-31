@@ -28,6 +28,7 @@ INDEX_STATEMENTS = [
     "CREATE INDEX ON :DatabaseTable(name);",
     "CREATE INDEX ON :SharedDataStructure(name);",
     "CREATE INDEX ON :SharedConstant(name);",
+    "CREATE INDEX ON :Channel(name);",
 ]
 
 # Node labels and their key properties
@@ -51,6 +52,7 @@ NODE_TYPES = {
     "DatabaseTable": ["name"],
     "SharedDataStructure": ["name", "fields", "serialization_format"],
     "SharedConstant": ["name", "values"],
+    "Channel": ["name", "element_type"],
 }
 
 # Edge types and their properties
@@ -86,6 +88,8 @@ EDGE_TYPES = {
     "READS_CONFIG": [],
     "DEFINES_SHARED_STRUCTURE": ["language", "field_count"],
     "DEFINES_CONSTANT": ["language"],
+    "CHAN_SENDS": ["function", "line"],
+    "CHAN_RECEIVES": ["function", "line"],
 }
 
 
