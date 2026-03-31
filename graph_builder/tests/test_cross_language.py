@@ -313,3 +313,188 @@ def test_resolve_shared_constants_returns_list():
     result = resolve_shared_constants({})
     assert isinstance(result, list)
     assert len(result) == 0
+
+
+# --- Integration: full pipeline test ---
+
+def test_full_cross_language_pipeline():
+    """End-to-end: multi-language ASTs produce correct shared structure + constant edges."""
+    from graph_builder.resolvers.cross_language_resolver import (
+        resolve_shared_structures,
+        resolve_shared_constants,
+    )
+
+    # Build a multi-language AST set matching all known shared structures
+    all_asts = {
+        # SessionInfo definitions (Lua, Go, Python)
+        "ato/models/session_info.lua": FileAST(
+            file_path="ato/models/session_info.lua", language="lua"),
+        "core/model_prediction/server/models/session.go": FileAST(
+            file_path="core/model_prediction/server/models/session.go",
+            language="go"),
+        "deferrer/poller/poller/models/session.py": FileAST(
+            file_path="deferrer/poller/poller/models/session.py",
+            language="python"),
+
+        # ModelPredictionResult definitions (Go, Lua, Python)
+        "core/model_prediction/server/models/model_prediction.go": FileAST(
+            file_path="core/model_prediction/server/models/model_prediction.go",
+            language="go"),
+        "core/model_prediction/client/models/task.lua": FileAST(
+            file_path="core/model_prediction/client/models/task.lua",
+            language="lua"),
+        "deferrer/poller/poller/models/prediction.py": FileAST(
+            file_path="deferrer/poller/poller/models/prediction.py",
+            language="python"),
+
+        # Event definitions (Ruby, Lua)
+        "common/generator/lib/models/event.rb": FileAST(
+            file_path="common/generator/lib/models/event.rb", language="ruby"),
+        "ato/events/init.lua": FileAST(
+            file_path="ato/events/init.lua", language="lua"),
+
+        # Constants definitions (Lua, Go, Python)
+        "ato/config/init.lua": FileAST(
+            file_path="ato/config/init.lua", language="lua"),
+        "core/model_prediction/server/common/constants/constants.go": FileAST(
+            file_path="core/model_prediction/server/common/constants/constants.go",
+            language="go"),
+        "deferrer/poller/poller/constants.py": FileAST(
+            file_path="deferrer/poller/poller/constants.py", language="python"),
+    }
+
+    # Run resolvers
+    structure_edges = resolve_shared_structures(all_asts)
+    constant_edges = resolve_shared_constants(all_asts)
+
+    # --- Verify shared structures ---
+
+    # SessionInfo: 3 languages = 3 edges
+    session_edges = [e for e in structure_edges if e["structure_name"] == "SessionInfo"]
+    assert len(session_edges) == 3
+    session_langs = {e["language"] for e in session_edges}
+    assert session_langs == {"lua", "go", "python"}
+
+    # ModelPredictionResult: 3 languages = 3 edges
+    mpr_edges = [e for e in structure_edges if e["structure_name"] == "ModelPredictionResult"]
+    assert len(mpr_edges) == 3
+    mpr_langs = {e["language"] for e in mpr_edges}
+    assert mpr_langs == {"go", "lua", "python"}
+
+    # Event: 2 languages = 2 edges
+    event_edges = [e for e in structure_edges if e["structure_name"] == "Event"]
+    assert len(event_edges) == 2
+    event_langs = {e["language"] for e in event_edges}
+    assert event_langs == {"ruby", "lua"}
+
+    # Total structure edges: 3 + 3 + 2 = 8
+    assert len(structure_edges) == 8
+
+    # --- Verify shared constants ---
+
+    # MODEL_TYPES: 3 languages = 3 edges
+    model_type_edges = [e for e in constant_edges if e["constant_name"] == "MODEL_TYPES"]
+    assert len(model_type_edges) == 3
+
+    # RISK_LEVELS: 3 languages = 3 edges
+    risk_edges = [e for e in constant_edges if e["constant_name"] == "RISK_LEVELS"]
+    assert len(risk_edges) == 3
+
+    # Total constant edges: 3 + 3 = 6
+    assert len(constant_edges) == 6
+
+    # --- Verify total ---
+    # 8 structure edges + 6 constant edges = 14 DEFINES edges
+    # Plus 3 SharedDataStructure nodes + 2 SharedConstant nodes = 5 node upserts
+    # Total graph writes: ~14 edges + 5 nodes = 19 minimum
+    # (Spec says ~28 because it counts both node creation and edge creation per file)
+    total_edges = len(structure_edges) + len(constant_edges)
+    assert total_edges == 14
+
+    # Verify all edges have required fields
+    for edge in structure_edges:
+        assert "structure_name" in edge
+        assert "file" in edge
+        assert "language" in edge
+        assert "fields" in edge
+        assert "serialization" in edge
+        assert "field_count" in edge
+        assert edge["field_count"] > 0
+
+    for edge in constant_edges:
+        assert "constant_name" in edge
+        assert "file" in edge
+        assert "language" in edge
+        assert "values" in edge
+        assert len(edge["values"]) > 0
+
+
+def test_full_pipeline_with_repo_prefix():
+    """End-to-end with repo_root prefix: suffix matching works correctly."""
+    from graph_builder.resolvers.cross_language_resolver import (
+        resolve_shared_structures,
+        resolve_shared_constants,
+    )
+
+    prefix = "/home/user/repos/pinpoint/src"
+    all_asts = {
+        f"{prefix}/ato/models/session_info.lua": FileAST(
+            file_path=f"{prefix}/ato/models/session_info.lua", language="lua"),
+        f"{prefix}/core/model_prediction/server/models/session.go": FileAST(
+            file_path=f"{prefix}/core/model_prediction/server/models/session.go",
+            language="go"),
+        f"{prefix}/ato/config/init.lua": FileAST(
+            file_path=f"{prefix}/ato/config/init.lua", language="lua"),
+        f"{prefix}/core/model_prediction/server/common/constants/constants.go": FileAST(
+            file_path=f"{prefix}/core/model_prediction/server/common/constants/constants.go",
+            language="go"),
+    }
+
+    structure_edges = resolve_shared_structures(all_asts)
+    constant_edges = resolve_shared_constants(all_asts)
+
+    # SessionInfo: Lua + Go = 2 edges (Python file not present)
+    session_edges = [e for e in structure_edges if e["structure_name"] == "SessionInfo"]
+    assert len(session_edges) == 2
+
+    # MODEL_TYPES: Lua + Go = 2 edges (Python file not present)
+    model_edges = [e for e in constant_edges if e["constant_name"] == "MODEL_TYPES"]
+    assert len(model_edges) == 2
+
+    # Verify file paths are the full prefixed paths, not the suffix patterns
+    for edge in structure_edges:
+        assert edge["file"].startswith(prefix)
+
+
+def test_full_pipeline_empty_asts():
+    """End-to-end with no matching files: returns empty lists."""
+    from graph_builder.resolvers.cross_language_resolver import (
+        resolve_shared_structures,
+        resolve_shared_constants,
+    )
+
+    all_asts = {}
+    assert resolve_shared_structures(all_asts) == []
+    assert resolve_shared_constants(all_asts) == []
+
+
+def test_structure_node_deduplication():
+    """Multiple definition files for the same structure share the same structure_name."""
+    from graph_builder.resolvers.cross_language_resolver import resolve_shared_structures
+
+    all_asts = {
+        "ato/models/session_info.lua": FileAST(
+            file_path="ato/models/session_info.lua", language="lua"),
+        "core/model_prediction/server/models/session.go": FileAST(
+            file_path="core/model_prediction/server/models/session.go",
+            language="go"),
+    }
+    edges = resolve_shared_structures(all_asts)
+    session_edges = [e for e in edges if e["structure_name"] == "SessionInfo"]
+
+    # Both edges reference the same structure_name
+    assert len(session_edges) == 2
+    assert session_edges[0]["structure_name"] == session_edges[1]["structure_name"]
+    # But different files and languages
+    assert session_edges[0]["file"] != session_edges[1]["file"]
+    assert session_edges[0]["language"] != session_edges[1]["language"]
