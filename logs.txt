@@ -1,344 +1,44 @@
-(.venv) il021250@Noams-MacBook-Pro Code-Knowledge-Graph % code-graph -c config.yml build
-Building code graph for: /Users/il021250/dev/pinpoint/src
-Scanning 1237 files...
-Parsed 1237 files (0 errors)
-  Lua package paths: 29 templates
-Resolving cross-file imports...
-Resolving cross-file calls...
-  Calls: 45592 total, 21605 resolved (47.4%)
-Resolving Redis abstraction layers...
-  Redis accesses via abstractions: +661 (total: 679)
-Resolving parameter-name calls...
-  Parameter calls resolved: 1617
-  Base-inherited calls resolved: 28
-Classifying unresolved calls...
-  Builtins: 8513, External: 188, Truly unresolved: 13627
-Linking cross-language endpoints...
-  Controller routes: 8
-  Linked 8 cross-language HTTP calls to endpoints
-  Missions: 6 dispatches, 4 resolved to files
-Resolving JS ERB render-chain inclusions...
-  ERB render includes: 49, collector loop includes: 56
-Detecting cross-service IPC patterns...
-  Unix sockets: 9, Redis patterns: 8, DB accesses: 54, AWS accesses: 16, Config edges: 5
-Detecting cross-language shared structures and constants...
-  Shared structures: 4 edges, shared constants: 2 edges
-Ingesting into Memgraph...
-  Ingested 24 nginx locations, 2 proxy_pass, 0 upstreams
-  Go same-package edges: 245
-  71636 graph writes
-
-Build completed in 90.4s
-(.venv) il021250@Noams-MacBook-Pro Code-Knowledge-Graph % code-graph -c config.yml validate
-
-============================================================
-  Graph Coverage Report
-  Repository: /Users/il021250/dev/pinpoint/src
-============================================================
-
-  Total source files found: 1237
-
---- FILES ---
-   lua:  823 /  823 parsed (100.0%)  [errors: 0]
-    py:   96 /   96 parsed (100.0%)  [errors: 0]
-    rb:  151 /  151 parsed (100.0%)  [errors: 0]
-    js:   94 /   94 parsed (100.0%)  [errors: 0]
-    go:   73 /   73 parsed (100.0%)  [errors: 0]
-
---- ENTITIES ---
-  Functions:      7838 (5657 public)
-  Classes:         330
-    lua: 5072 functions (3178 public), 0 classes
-    py: 391 functions (377 public), 98 classes
-    rb: 809 functions (715 public), 91 classes
-    js: 908 functions (908 public), 0 classes
-    go: 658 functions (479 public), 141 classes
-
---- IMPORTS ---
-  Total import refs:  6631
-  Dynamic imports:    67
-  Likely resolved:    5584 / 6564
-  Likely internal but unresolved: 10
-    resty.lock (from monitor.lua)
-    resty.lock (from mysql_fallback_timer.lua)
-    resty.lock (from redis_dns_timer.lua)
-    resty.iputils (from cloudfront_ips.lua)
-    resty.lock (from async_timer.lua)
-    resty.http (from socket.lua)
-    resty.dns.resolver (from socket.lua)
-    resty.redis (from redisglider.lua)
-    resty.redis (from rediscluster.lua)
-    resty.sha256 (from mysql.lua)
-
---- EXPORTS ---
-  Total exports:     7327
-  Files with exports:    1067
-  Files without exports: 170
-    lua: 768 / 823 (93.3%)
-    py: 79 / 96 (82.3%)
-    rb: 82 / 151 (54.3%)
-      ⚠ LOW: Consider auditing rb parser export detection
-    js: 69 / 94 (73.4%)
-      ⚠ LOW: Consider auditing js parser export detection
-    go: 69 / 73 (94.5%)
-
---- CALLS ---
-  Total calls:         45592
-  Resolved to module:  23250 (51.0%)
-  pcall-wrapped:       263
-  Call resolution:     47.4% (21605/45592)
-
---- CALL CLASSIFICATION ---
-  Builtins:            8513
-  External libs:       188
-  Truly unresolved:    13627
-  Resolved (skipped):  23250
-  Effective coverage:  70.1% (resolved + builtin + external)
-  Calls per function:  5.8
-
---- OPENRESTY ---
-  ngx.ctx accesses:     296
-  ngx.shared accesses:  41
-  Internal redirects:   0
-
---- CROSS-SERVICE ---
-  Redis key accesses:   639
-    (direct: 18, via abstractions: +621)
-    lua: 621
-    py: 1
-    rb: 17
-  HTTP client calls:    70
-    lua: 17
-    py: 5
-    js: 45
-    go: 3
-
---- LUA MODULE PATTERNS ---
-                     M: 595
-                 named: 186
-           side_effect: 17
-                direct: 14
-               unknown: 8
-                    _M: 3
-
---- NGINX CONFIG ---
-  lua_package_path entries: 24
-  Shared dicts: 26
-  Locations: 24
-  Global Lua phases: 4
-  Location Lua phases: 13
-  Include files: 8
-  Upstreams: 0
-  Proxy_pass locations: 2
-
---- WARNINGS (76) ---
-  ⚠ Dynamic require at line 10: require(string.format("tasks.%s", task_name))
-  ⚠ Dynamic require at line 145: require(current.path)
-  ⚠ Dynamic require at line 64: require(path)
-  ⚠ Dynamic require at line 2: require(string.format("deferrer.%s.client", config.DEFERRER_ENGINE))
-  ⚠ Dynamic require at line 16: require(format("malware.tasks.%s", task_name))
-  ⚠ Dynamic require at line 18: require(format("malware.collectors.%s", name))
-  ⚠ Dynamic require at line 28: require(format("common.collectors.%s", name))
-  ⚠ Dynamic require at line 11: require(format("malware.models.%s", name))
-  ⚠ Dynamic require at line 10: require(format("malware.adapters.%s", name))
-  ⚠ Dynamic require at line 18: require(format("malware.actors.%s", name))
-  ⚠ Dynamic require at line 27: require(format("common.actors.%s", name))
-  ⚠ Dynamic require at line 9: require(format("malware.assessors.%s", name))
-  ⚠ Dynamic require at line 18: require(format("common.assessors.%s", name))
-  ⚠ Dynamic require at line 10: require(format("malware.handlers.%s", name))
-  ⚠ Dynamic require at line 18: require(format("common.handlers.%s", name))
-  ⚠ Dynamic require at line 31: require(collector_path)
-  ⚠ Dynamic require at line 37: require(helper_path)
-  ⚠ Dynamic require at line 44: require(model_path)
-  ⚠ Dynamic require at line 54: require(item_path)
-  ⚠ Dynamic require at line 10: require(string.format("common.tasks.%s", task_name))
-  ... and 56 more
-
-  Report generated in 35.36s
-
-(.venv) il021250@Noams-MacBook-Pro Code-Knowledge-Graph % code-graph -c config.yml health
-
-======================================================================
-  GRAPH HEALTH DIAGNOSTIC
-  Repository: /Users/il021250/dev/pinpoint/src
-======================================================================
-
-  ──────────────────────────────────────────────────────────────────
-  LANGUAGE: GO
-  ──────────────────────────────────────────────────────────────────
-  Files:           73
-  Functions:       658 (479 public)
-  Classes:         141
-  Export coverage: 69/73 files (94.5%)
-  Import resolution: 308/512 (60.2%)
-  Call resolution:   3011/4949 (60.8%)
-  Redis accesses:  40
-  HTTP calls:      3
-  Functions w/ outgoing calls: 584
-  Orphan functions (0 calls):  74
-  Top importers:
-     35 imports  router_test.go
-     24 imports  router.go
-     18 imports  event_forwarder.go
-     16 imports  model_prediction.go
-     15 imports  event_forwarder_test.go
-  Orphan files (no import edges): 5
-    init.go
-    init.go
-    array_utils.go
-    mobile_behave.go
-    user_insights.go
-
-  ──────────────────────────────────────────────────────────────────
-  LANGUAGE: JAVASCRIPT
-  ──────────────────────────────────────────────────────────────────
-  Files:           94
-  Functions:       908 (908 public)
-  Classes:         0
-  Export coverage: 69/94 files (73.4%)
-  Import resolution: 0/3 (0.0%)
-  Call resolution:   987/3709 (26.6%)
-  Redis accesses:  0
-  HTTP calls:      45
-  Functions w/ outgoing calls: 756
-  Orphan functions (0 calls):  148
-  Top importers:
-      3 imports  casper_ext.js
-      0 imports  behave.js.erb
-      0 imports  behave_utils.js.erb
-      0 imports  hook_inputs.js.erb
-      0 imports  keystrokes.js.erb
-  Orphan files (no import edges): 16
-    dummy_container.js.erb
-    DOMLoadedHelper.js.erb
-    aes.js.erb
-    casper_ext.js
-    device_features.js.erb
-    ... and 11 more
-
-  ──────────────────────────────────────────────────────────────────
-  LANGUAGE: LUA
-  ──────────────────────────────────────────────────────────────────
-  Files:           823
-  Functions:       5072 (3178 public)
-  Classes:         0
-  Export coverage: 768/823 files (93.3%)
-  Import resolution: 4971/5297 (93.8%)
-  Call resolution:   17394/29055 (59.9%)
-  Redis accesses:  909
-  HTTP calls:      17
-  Functions w/ outgoing calls: 4668
-  Orphan functions (0 calls):  397
-  Top importers:
-     64 imports  helpers.lua
-     42 imports  init.lua
-     38 imports  init.lua
-     37 imports  policy.lua
-     37 imports  model_prediction.lua
-  Orphan files (no import edges): 25
-    phishing_detection_results_api.lua
-    init.lua
-    init.lua
-    r1.lua
-    r11.lua
-    ... and 20 more
-
-  ──────────────────────────────────────────────────────────────────
-  LANGUAGE: PYTHON
-  ──────────────────────────────────────────────────────────────────
-  Files:           96
-  Functions:       391 (377 public)
-  Classes:         98
-  Export coverage: 79/96 files (82.3%)
-  Import resolution: 150/409 (36.7%)
-  Call resolution:   926/2198 (42.1%)
-  Redis accesses:  1
-  HTTP calls:      5
-  Functions w/ outgoing calls: 290
-  Orphan functions (0 calls):  87
-  Top importers:
-     13 imports  runner.py
-     13 imports  app.py
-     13 imports  missioner.py
-     12 imports  health_check.py
-     12 imports  app.py
-  Orphan files (no import edges): 22
-    config_schema.py
-    meta.py
-    meta.py
-    __init__.py
-    __init__.py
-    ... and 17 more
-
-  ──────────────────────────────────────────────────────────────────
-  LANGUAGE: RUBY
-  ──────────────────────────────────────────────────────────────────
-  Files:           151
-  Functions:       809 (715 public)
-  Classes:         91
-  Export coverage: 82/151 files (54.3%)
-  Import resolution: 150/343 (43.7%)
-  Call resolution:   932/5681 (16.4%)
-  Redis accesses:  17
-  HTTP calls:      0
-  Functions w/ outgoing calls: 577
-  Orphan functions (0 calls):  219
-  Top importers:
-     24 imports  runner.rb
-     21 imports  cacher.rb
-     17 imports  generate_origin.rb
-     16 imports  generator.rb
-     14 imports  runner.rb
-  Orphan files (no import edges): 71
-    behave.rb
-    custom_fields.rb
-    device_id.rb
-    failed_login.rb
-    fraud_attributes.rb
-    ... and 66 more
-
-  ──────────────────────────────────────────────────────────────────
-  TECHNIQUE COVERAGE MATRIX
-  ──────────────────────────────────────────────────────────────────
-  Technique                        go   javascript          lua       python         ruby
-  ────────────────────── ──────────── ──────────── ──────────── ──────────── ────────────
-  Import resolver                 YES          YES          YES          YES          YES
-  Binding tracking                YES          YES          YES          YES           no
-  Call resolution                 61%          27%          60%          42%          16%
-  Redis detection                 YES           no          YES          YES          YES
-  HTTP detection                  YES          YES          YES          YES           no
-  Qualified names                 YES          YES           no          YES          YES
-  Class/inherit                   YES           no           no          YES          YES
-
-  ──────────────────────────────────────────────────────────────────
-  CROSS-SERVICE IPC
-  ──────────────────────────────────────────────────────────────────
-  Unix sockets:        9 edges (6 sockets)
-  Mission dispatches:  6 detected, 4 resolved
-  Redis patterns:      8 cross-language edges
-  Database accesses:   54 (MySQL + Cassandra)
-  AWS services:        16 (SQS + Kinesis + S3)
-  Shared configs:      5 edges
-    cassandra: 40
-    mysql: 14
-    kinesis: 2
-    s3: 10
-    sqs: 4
-
-  ──────────────────────────────────────────────────────────────────
-  GLOBAL SUMMARY
-  ──────────────────────────────────────────────────────────────────
-  Total files:     1237 (0 parse errors)
-  Total functions: 7838
-  Total classes:   330
-  Import resolution: 5579/6564 (85.0%)
-  Call resolution:   45592 total, 23250 resolved (51.0%)
-    (CallResolver: 21605, parameter: +1617, base-inherited: +28)
-  Call classification:
-    Builtins:          8513
-    External:          188
-    Truly unresolved:  13627
-  Redis accesses:  967 (direct: 18, via abstractions: +949)
-  HTTP calls:      70
-
-  Report generated in 63.17s
+Symbol 'get_current' found in 20 locations:
+  [Function] get_current_access in /Users/il021250/dev/pinpoint/src/ato/events/pinpoint_ato_current_session_dump/init.lua:52
+  [Function] M.get_current_bulk_movements in /Users/il021250/dev/pinpoint/src/ato/helpers/remote_access_tool.lua:20
+  [Function] get_current_bulk_movements in /Users/il021250/dev/pinpoint/src/ato/helpers/remote_access_tool.lua:None
+  [Function] M.get_current_request_id in /Users/il021250/dev/pinpoint/src/ato/helpers/request_id.lua:65
+  [Function] get_current_request_id in /Users/il021250/dev/pinpoint/src/ato/helpers/request_id.lua:None
+  [Function] M:get_current_session in /Users/il021250/dev/pinpoint/src/ato/models/user_history.lua:799
+  [Function] get_current in /Users/il021250/dev/pinpoint/src/ato/structured_policy/helpers.lua:None
+  [Function] get_current_activity in /Users/il021250/dev/pinpoint/src/ato/structured_policy/helpers.lua:242
+  [Function] Helpers.get_current in /Users/il021250/dev/pinpoint/src/ato/structured_policy/helpers.lua:1353
+  [Function] get_current_session_cached_keystrokes_data in /Users/il021250/dev/pinpoint/src/ato/structured_policy/helpers.lua:592
+  [Function] Helpers.get_current_session_rat in /Users/il021250/dev/pinpoint/src/ato/structured_policy/helpers.lua:488
+  [Function] Helpers.get_current_session_pages in /Users/il021250/dev/pinpoint/src/ato/structured_policy/helpers.lua:506
+  [Function] AccountAPI:get_current_access in /Users/il021250/dev/pinpoint/src/ato/structured_policy/models_api/account_api.lua:105
+  [Function] PolicyAPI.get_current_transactions in /Users/il021250/dev/pinpoint/src/ato/structured_policy/models_api/init.lua:729
+  [Function] get_current_access in /Users/il021250/dev/pinpoint/src/ato/structured_policy/models_api/init.lua:214
+  [Function] get_current in /Users/il021250/dev/pinpoint/src/ato/structured_policy/policy/current.lua:121
+  [Function] get_current_state in /Users/il021250/dev/pinpoint/src/ato/structured_policy/policy/current.lua:70
+  [Function] get_current_account_data_from_store in /Users/il021250/dev/pinpoint/src/ato/structured_policy/policy/model_prediction.lua:None
+  [Function] get_current_account_data_from_redis in /Users/il021250/dev/pinpoint/src/ato/structured_policy/policy/model_prediction.lua:None
+  [Function] M.get_current_access_data in /Users/il021250/dev/pinpoint/src/ato/structured_policy/policy/model_prediction.lua:157
+File 'src/ato/structured_policy/helpers.lua' not found in the graph.
+Traceback (most recent call last):
+  File "/Users/il021250/dev/Code-Knowledge-Graph/tests/smoke_test.py", line 11, in <module>
+    print(composites.locate(eng, "session_info", limit=5))
+  File "/Users/il021250/dev/Code-Knowledge-Graph/mcp_server/tools/composites.py", line 458, in locate
+    results = engine.query(cypher, tokens=tokens, limit=limit)
+  File "/Users/il021250/dev/Code-Knowledge-Graph/mcp_server/query_engine.py", line 21, in query
+    result = session.run(cypher, **params)
+  File "/Users/il021250/dev/Code-Knowledge-Graph/.venv/lib/python3.10/site-packages/neo4j/_sync/work/session.py", line 320, in run
+    self._auto_result._run(
+  File "/Users/il021250/dev/Code-Knowledge-Graph/.venv/lib/python3.10/site-packages/neo4j/_sync/work/result.py", line 237, in _run
+    self._attach()
+  File "/Users/il021250/dev/Code-Knowledge-Graph/.venv/lib/python3.10/site-packages/neo4j/_sync/work/result.py", line 439, in _attach
+    self._connection.fetch_message()
+  File "/Users/il021250/dev/Code-Knowledge-Graph/.venv/lib/python3.10/site-packages/neo4j/_sync/io/_common.py", line 193, in inner
+    func(*args, **kwargs)
+  File "/Users/il021250/dev/Code-Knowledge-Graph/.venv/lib/python3.10/site-packages/neo4j/_sync/io/_bolt.py", line 867, in fetch_message
+    res = self._process_message(tag, fields)
+  File "/Users/il021250/dev/Code-Knowledge-Graph/.venv/lib/python3.10/site-packages/neo4j/_sync/io/_bolt5.py", line 496, in _process_message
+    response.on_failure(summary_metadata or {})
+  File "/Users/il021250/dev/Code-Knowledge-Graph/.venv/lib/python3.10/site-packages/neo4j/_sync/io/_common.py", line 263, in on_failure
+    raise self._hydrate_error(metadata)
+neo4j.exceptions.TransientError: {neo4j_code: Memgraph.TransientError.MemgraphError.MemgraphError} {message: Not yet implemented: atom expression '[tIN$tokensWHEREtoLower(coalesce(n.name,"a"))CONTAINStORtoLower(coalesce(n.file,n.path,"a"))CONTAINSt]'} {gql_status: 50N42} {gql_status_description: error: general processing exception - unexpected error. Not yet implemented: atom expression '[tIN$tokensWHEREtoLower(coalesce(n.name,"a"))CONTAINStORtoLower(coalesce(n.file,n.path,"a"))CONTAINSt]'}
