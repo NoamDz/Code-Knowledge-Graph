@@ -1,0 +1,58 @@
+# Code Knowledge Graph — example config.
+# Copy to config.yml and edit. Fields not set here use built-in defaults
+# (see graph_builder/config.py).
+
+# Absolute or relative path to the codebase to index.
+repo_root: /path/to/your/codebase
+
+# Optional: nginx.conf for OpenResty endpoint tracing. Omit if not OpenResty.
+# nginx_conf: /path/to/nginx.conf
+
+# Optional: maps absolute paths inside nginx.conf (e.g. /data/app/...) back to
+# the local repo_root, when nginx runs containerized.
+# nginx_base_path: /data/app
+
+memgraph:
+  uri: bolt://localhost:7687
+  username: ""
+  password: ""
+
+# Directories skipped during scanning (merged with built-in defaults).
+skip_dirs:
+  - node_modules
+  - .git
+  - __pycache__
+  - vendor
+  - venv
+  - .venv
+  - dist
+  - build
+
+# Lua-specific: module table identifiers used to detect exports.
+lua_module_table_names:
+  - _M
+  - M
+  - m
+
+# Lua-specific: package.path templates for require() resolution. Useful when
+# nginx.conf is not parseable. Each entry is a `?`-substitution pattern.
+# lua_package_paths:
+#   - /opt/openresty/lualib/?.lua
+#   - /opt/openresty/lualib/?/init.lua
+#   - /repo/services/?/?.lua
+
+# Middleware filtering for the explain_flow MCP composite. Functions whose
+# file path or name contain any of these substrings are collapsed in the
+# call trace. Used in addition to the ngx.ctx state-key heuristic. Override
+# at runtime via CODE_GRAPH_MIDDLEWARE_FILES / CODE_GRAPH_MIDDLEWARE_FUNCTIONS
+# env vars.
+middleware_files:
+  - middleware
+  - filter
+  - /common/
+  - /shared/auth
+middleware_functions:
+  - authenticate
+  - authorize
+  - log_request
+  - rate_limit

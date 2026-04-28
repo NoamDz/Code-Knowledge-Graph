@@ -7,11 +7,13 @@ from ..query_engine import QueryEngine, format_file_list
 
 def find_impacted_files(engine: QueryEngine, file_path: str, max_depth: int = 5) -> str:
     """Find all files that could be affected by changes to the given file."""
-    results = engine.query("""
-        MATCH (dep:File)-[:IMPORTS*1..$depth]->(f:File {path: $path})
+    # Cypher cannot parameterize variable-length bounds; clamp + interpolate.
+    depth = max(1, min(int(max_depth), 10))
+    results = engine.query(f"""
+        MATCH (dep:File)-[:IMPORTS*1..{depth}]->(f:File {{path: $path}})
         RETURN DISTINCT dep.path AS path, dep.language AS language
         ORDER BY dep.path
-    """, path=file_path, depth=max_depth)
+    """, path=file_path)
     return format_file_list(f"Files impacted by changes to {file_path}", results)
 
 

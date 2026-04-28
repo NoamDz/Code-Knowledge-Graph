@@ -1,5 +1,49 @@
+# --- Local config / secrets ---
 .env
 config.yml
-code_graph.egg-info/*
-__pycache__
-.venv/*
+
+# --- Python build / cache artifacts ---
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# --- Virtualenvs ---
+.venv/
+venv/
+env/
+
+# --- IDE / editor cruft ---
+.idea/
+.vscode/
+.antigravity/
+*.swp
+*.swo
+*~
+
+# --- OS cruft ---
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# --- Local logs / scratch ---
+logs.txt
+*.log
+*.tmp
+*.bak
+
+# --- Claude Code local state ---
+.claude/
+
+# --- Working notes (not part of the canonical project) ---
+notes/
+
+# --- Reference material (large PDFs, external reading) ---
+reference/

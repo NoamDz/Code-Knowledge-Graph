@@ -1,10 +1,14 @@
-"""FastMCP server exposing graph tools to BOB.
+"""FastMCP server exposing the code graph to an agent.
+
+Agent-facing surface: 7 tools (see DESIGN.md at repo root).
+  - 4 composites: explain_flow, find_impact, onboard_to, locate
+  - 3 read primitives: get_code_snippet, get_file_outline, find_symbol
+
+Operator-only tools (find_unresolved, get_graph_stats, diagnose_file) have
+moved to the `code-graph` CLI — they are not exposed here.
 
 Start with:
     python -m mcp_server.server
-
-Or register in MCP config as:
-    {"command": "python", "args": ["-m", "mcp_server.server"]}
 """
 
 from __future__ import annotations
@@ -14,11 +18,11 @@ import os
 from fastmcp import FastMCP
 
 from .query_engine import QueryEngine
-from .tools import navigation, tracing, impact, search, snippets
+from .telemetry import traced
+from .tools import composites, search, snippets
 
 mcp = FastMCP("bob-code-graph")
 
-# Initialize query engine (connects on first use)
 _engine: QueryEngine | None = None
 
 
@@ -30,128 +34,83 @@ def _get_engine() -> QueryEngine:
     return _engine
 
 
-# --- Navigation tools ---
+# --- Composites (task-shaped) ---
 
 @mcp.tool()
-def get_dependencies(file_path: str) -> str:
-    """Returns all files that the given file imports or depends on.
-    Use when you need to understand what a file relies on before modifying it.
+@traced("explain_flow")
+def explain_flow(endpoint: str, escape_hatch: bool = False) -> str:
+    """Explain how an HTTP endpoint works end-to-end: nginx phases, call graph,
+    internal reroutes, and cross-service HTTP calls, with middleware collapsed.
+
+    Pass escape_hatch=True to get the raw call-centric trace including middleware.
+    Example: explain_flow('/api/auth/login')
     """
-    return navigation.get_dependencies(_get_engine(), file_path)
+    return composites.explain_flow(_get_engine(), endpoint, escape_hatch)
 
 
 @mcp.tool()
-def get_dependents(file_path: str) -> str:
-    """Returns all files that import or depend on the given file.
-    Use for impact analysis — which files will be affected by changes here.
+@traced("find_impact")
+def find_impact(symbol_or_file: str, max_depth: int = 5, escape_hatch: bool = False) -> str:
+    """Blast radius for a change. Accepts a file path OR a symbol name.
+
+    Returns direct callers, transitive file-level dependents, and implicit
+    couplings (ngx.ctx, ngx.shared, Redis keys, HTTP calls to other services).
+    Use before modifying a function or file to understand what breaks.
+
+    Pass escape_hatch=True to also dump raw primitive output (find_all_callers
+    for symbols, find_impacted_files for paths) so you can see what the
+    composite filtered or summarized.
     """
-    return navigation.get_dependents(_get_engine(), file_path)
+    return composites.find_impact(_get_engine(), symbol_or_file, max_depth, escape_hatch)
 
 
 @mcp.tool()
-def get_repo_overview(limit: int = 40) -> str:
-    """Returns a condensed map of the most important files in the codebase,
-    ranked by how many other files import them.
-    Use at the start of a new task to orient yourself.
+@traced("onboard_to")
+def onboard_to(area: str, escape_hatch: bool = False) -> str:
+    """Ramp-up pack for a feature area. `area` is a path prefix, module name,
+    or endpoint ('/api/...'). Returns central files, public exports, entry
+    endpoints, and Redis keys touched by that area.
+
+    Use at the start of a new task to orient yourself inside a subsystem.
+    Pass escape_hatch=True to drop the centrality filter (no min import count)
+    and include non-public exports.
     """
-    return navigation.get_repo_overview(_get_engine(), limit)
+    return composites.onboard_to(_get_engine(), area, escape_hatch)
 
-
-# --- Tracing tools ---
 
 @mcp.tool()
-def trace_endpoint(endpoint_path: str, max_depth: int = 6) -> str:
-    """Traces the complete code path for an HTTP endpoint through all
-    Lua phases, function calls, and module dependencies.
-    Essential for understanding how a feature works end-to-end.
-    Example: trace_endpoint('/api/auth/login')
+@traced("locate")
+def locate(description: str, limit: int = 10, escape_hatch: bool = False) -> str:
+    """Natural-language symbol localization. Given a description of what
+    you're looking for, returns the top-ranked matching symbols and files.
+
+    Default: ranks by literal token hits reweighted by graph centrality
+    (incoming edge count). Pass escape_hatch=True to skip the centrality
+    rerank and see raw lexical matches — useful when the target is a leaf
+    utility or entry endpoint with low in-degree.
+
+    Use locate when you're describing behavior; use find_symbol when you know
+    the exact name. Example: locate('endpoint that issues auth tokens').
     """
-    return tracing.trace_endpoint(_get_engine(), endpoint_path, max_depth)
+    return composites.locate(_get_engine(), description, limit, escape_hatch)
 
+
+# --- Read primitives (kept) ---
 
 @mcp.tool()
-def find_all_callers(function_name: str) -> str:
-    """Finds every function across the codebase that calls the given function.
-    Use before modifying a function signature to understand the blast radius.
+@traced("find_symbol")
+def find_symbol(symbol_name: str, scope: str | None = None) -> str:
+    """Finds where a function, class, or module is defined.
+
+    If `scope` is provided (module name like 'resty.auth' or path substring
+    like 'services/auth/'), results are filtered to that scope and public
+    exports are preferred — i.e. acts as module-exports lookup.
     """
-    return tracing.find_all_callers(_get_engine(), function_name)
-
-
-# --- Impact tools ---
-
-@mcp.tool()
-def find_impacted_files(file_path: str, max_depth: int = 5) -> str:
-    """Find all files that could be affected by changes to the given file.
-    Traces the reverse dependency graph to show the full blast radius.
-    """
-    return impact.find_impacted_files(_get_engine(), file_path, max_depth)
+    return search.find_symbol(_get_engine(), symbol_name, scope)
 
 
 @mcp.tool()
-def get_implicit_dependencies(file_path: str) -> str:
-    """Returns implicit dependencies for a Lua file: ngx.ctx fields
-    read/written, ngx.shared dicts accessed, Redis keys, HTTP calls,
-    and other files that touch the same coupling points.
-    These are dependencies that don't show up in require/import statements.
-    """
-    return impact.get_implicit_dependencies(_get_engine(), file_path)
-
-
-@mcp.tool()
-def get_redis_coupling(key_pattern: str) -> str:
-    """Find all functions across the codebase that read or write a Redis key
-    matching the given pattern. Shows cross-service data flow through Redis.
-    Example: get_redis_coupling('user:flags')
-    """
-    return impact.get_redis_coupling(_get_engine(), key_pattern)
-
-
-@mcp.tool()
-def trace_cross_service_flow(endpoint: str) -> str:
-    """Trace cross-service data flow for an endpoint: internal reroutes
-    (ngx.exec, ngx.location.capture) and HTTP calls between services.
-    Example: trace_cross_service_flow('/api/process')
-    """
-    return impact.trace_cross_service_flow(_get_engine(), endpoint)
-
-
-# --- Search tools ---
-
-@mcp.tool()
-def find_symbol(symbol_name: str) -> str:
-    """Finds where a function, class, or module is defined in the codebase.
-    Returns file path and line number.
-    """
-    return search.find_symbol(_get_engine(), symbol_name)
-
-
-@mcp.tool()
-def get_module_exports(module_name: str) -> str:
-    """Returns the public API (exported functions) of a module.
-    Example: get_module_exports('resty.auth')
-    """
-    return search.get_module_exports(_get_engine(), module_name)
-
-
-@mcp.tool()
-def get_graph_stats() -> str:
-    """Returns aggregate statistics about the code graph: file counts
-    per language, node/edge counts by type, and overall graph health.
-    """
-    return search.get_graph_stats(_get_engine())
-
-
-@mcp.tool()
-def find_unresolved(language: str | None = None) -> str:
-    """Returns imports and calls that the graph could not resolve to
-    actual files. Useful for identifying external deps vs parser gaps.
-    """
-    return search.find_unresolved(_get_engine(), language)
-
-
-# --- Snippet tools ---
-
-@mcp.tool()
+@traced("get_code_snippet")
 def get_code_snippet(name: str, context_lines: int = 0) -> str:
     """Retrieves the source code of a function or class by name.
     Searches the graph for matching symbols and reads the actual source file.
@@ -161,23 +120,13 @@ def get_code_snippet(name: str, context_lines: int = 0) -> str:
 
 
 @mcp.tool()
+@traced("get_file_outline")
 def get_file_outline(file_path: str) -> str:
     """Shows the structural outline of a file: all defined functions, classes,
     exports, and imports with line numbers.
     Example: get_file_outline('graph_builder/parsers/js_parser.py')
     """
     return snippets.get_file_outline(_get_engine(), file_path)
-
-
-# --- Diagnostic tools ---
-
-@mcp.tool()
-def diagnose_file(file_path: str) -> str:
-    """Returns diagnostic info about how well a file was captured
-    in the code graph. Use when queries return unexpected results.
-    """
-    from graph_builder.validate.spot_check import spot_check
-    return spot_check(file_path)
 
 
 if __name__ == "__main__":

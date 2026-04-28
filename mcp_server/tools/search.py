@@ -5,17 +5,38 @@ from __future__ import annotations
 from ..query_engine import QueryEngine, format_symbol_results
 
 
-def find_symbol(engine: QueryEngine, symbol_name: str) -> str:
-    """Find where a function, class, or module is defined."""
-    results = engine.query("""
-        MATCH (node)
-        WHERE (node:Function OR node:Class OR node:Module)
-          AND node.name CONTAINS $name
-        RETURN labels(node)[0] AS type, node.name AS name,
-               node.file AS file, node.line AS line
-        ORDER BY node.file
-        LIMIT 20
-    """, name=symbol_name)
+def find_symbol(engine: QueryEngine, symbol_name: str, scope: str | None = None) -> str:
+    """Find where a function, class, or module is defined.
+
+    If `scope` is provided (module name or path substring), results are filtered
+    to that scope and public-visibility functions are preferred — replacing the
+    former `get_module_exports` tool.
+    """
+    if scope:
+        scope_norm = scope.replace(".", "/")
+        results = engine.query("""
+            MATCH (node)
+            WHERE (node:Function OR node:Class OR node:Module)
+              AND node.name CONTAINS $name
+              AND coalesce(node.file, node.path, '') CONTAINS $scope
+            RETURN labels(node)[0] AS type, node.name AS name,
+                   node.file AS file, node.line AS line,
+                   node.visibility AS visibility
+            ORDER BY
+                CASE WHEN node.visibility = 'public' THEN 0 ELSE 1 END,
+                node.file
+            LIMIT 20
+        """, name=symbol_name, scope=scope_norm)
+    else:
+        results = engine.query("""
+            MATCH (node)
+            WHERE (node:Function OR node:Class OR node:Module)
+              AND node.name CONTAINS $name
+            RETURN labels(node)[0] AS type, node.name AS name,
+                   node.file AS file, node.line AS line
+            ORDER BY node.file
+            LIMIT 20
+        """, name=symbol_name)
     return format_symbol_results(symbol_name, results)
 
 

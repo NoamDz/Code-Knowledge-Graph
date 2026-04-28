@@ -1,7 +1,11 @@
-version: '3.8'
 services:
   memgraph:
-    image: memgraph/memgraph-platform:latest
+    # memgraph-platform bundles Memgraph + Lab UI. Tag pinned to a real
+    # published build (the 2.x platform image is in maintenance — Memgraph 3.x
+    # ships standalone with `memgraph/lab` as a sibling service).
+    # For production, pin to a sha256 digest after `docker pull`.
+    image: memgraph/memgraph-platform:2.14.1-memgraph2.14.1-lab2.11.1
+    container_name: code-graph-memgraph
     ports:
       - "7687:7687"   # Bolt protocol (Cypher queries)
       - "3000:3000"   # Memgraph Lab (visual graph browser)
@@ -10,6 +14,34 @@ services:
     environment:
       - MEMGRAPH_STORAGE_MODE=IN_MEMORY_ANALYTICAL
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "echo 'RETURN 1;' | mgconsole --host 127.0.0.1 --port 7687 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  mcp:
+    # MCP server speaks JSON-RPC over stdio. Do NOT expose a port.
+    # Invoke via `docker compose run --rm mcp` from an agent harness, or
+    # register as an MCP stdio command. Not started by `docker compose up`.
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: code-graph-mcp:local
+    container_name: code-graph-mcp
+    environment:
+      - MEMGRAPH_URI=bolt://memgraph:7687
+    depends_on:
+      memgraph:
+        condition: service_healthy
+    volumes:
+      # Mount the target repo read-only so get_code_snippet / get_file_outline
+      # can read source files. REPO_ROOT defaults to the cwd.
+      - ${REPO_ROOT:-.}:/repo:ro
+    stdin_open: true
+    tty: false
+    profiles: ["agent"]
 
 volumes:
   memgraph_data:

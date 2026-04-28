@@ -53,6 +53,12 @@ class Config:
     # This maps the container prefix to the local repo_root.
     nginx_base_path: str | None = None
 
+    # Middleware filtering for the explain_flow MCP composite. Files/functions
+    # whose name contains any of these substrings are collapsed in the call
+    # trace by default. Used in addition to the ngx.ctx state-key heuristic.
+    middleware_files: list[str] = field(default_factory=list)
+    middleware_functions: list[str] = field(default_factory=list)
+
     @classmethod
     def from_yaml(cls, path: str) -> "Config":
         """Load config from a YAML file."""
@@ -80,6 +86,10 @@ class Config:
             config.lua_package_paths = raw["lua_package_paths"]
         if "nginx_base_path" in raw:
             config.nginx_base_path = raw["nginx_base_path"]
+        if "middleware_files" in raw:
+            config.middleware_files = list(raw["middleware_files"])
+        if "middleware_functions" in raw:
+            config.middleware_functions = list(raw["middleware_functions"])
 
         return config
 

@@ -1,156 +1,191 @@
-# BOB Code Knowledge Graph
+# Code Knowledge Graph
 
-A polyglot Code Knowledge Graph builder for IBM BOB, designed to index Lua/OpenResty, Python, Ruby, and JavaScript codebases into a queryable graph database (Memgraph), exposed as MCP tools.
+A polyglot code indexer that parses Lua/OpenResty, Python, Ruby, JavaScript, and Go with Tree-sitter, builds a semantic graph in Memgraph, and exposes it to coding agents through a small MCP tool surface.
 
-## Architecture
+Built for IBM BOB; the MCP server is transport-standard (stdio + JSON-RPC) and works with any MCP-compatible agent.
 
-```
-Your codebase (Lua/Python/Ruby/JS)
-        ↓  Tree-sitter parsers (per language)
-    Graph Builder (Python)
-        ↓  Cypher ingestion
-    Memgraph (Docker, in-memory graph DB)
-        ↓  Query API
-    MCP Server (Python, FastMCP)
-        ↓  MCP protocol
-    IBM BOB agent
-```
+## What the agent gets
 
-## Quick Start
+Seven tools, designed around task shapes rather than graph primitives. See `DESIGN.md` for the rationale.
 
-### 1. Start Memgraph
+**Composites — task-shaped answers:**
+- `explain_flow(endpoint)` — phase chain, call graph, reroutes, cross-service HTTP calls for an endpoint. Middleware collapsed by default; `escape_hatch=true` to expand.
+- `find_impact(symbol_or_file)` — blast radius: direct callers, transitive dependents, plus implicit couplings (`ngx.ctx`, `ngx.shared`, Redis keys, HTTP calls).
+- `onboard_to(area)` — ramp-up pack for a subsystem: central files, public exports, entry endpoints, Redis keys touched.
+- `locate(description)` — natural-language localization. v1 ranks grep hits by graph centrality (no embeddings).
+
+**Read primitives — kept for direct access:**
+- `get_code_snippet(name)` — source text for a symbol.
+- `get_file_outline(file_path)` — functions, classes, exports, imports.
+- `find_symbol(name, scope=None)` — symbol lookup; with `scope` acts as module-exports.
+
+Operator tools (`code-graph validate`, `code-graph stats`, `code-graph spot-check`) live on the CLI and are not exposed to the agent.
+
+## Quick start
+
+Prereqs: Docker (with compose v2), Python ≥ 3.10, `make`.
+
 ```bash
-docker compose up -d
-```
-
-### 2. Install dependencies
-```bash
+# 1. Clone and install the CLI
+git clone <repo-url> code-graph && cd code-graph
 pip install -e .
+
+# 2. Configure
+cp .env.example .env      # edit REPO_ROOT to point at the codebase to index
+cp config_example.yml config.yml   # if one is provided; otherwise see below
+
+# 3. Start Memgraph, create indexes, build the graph
+make rebuild CONFIG=config.yml
+
+# 4. Run the MCP server (stdio)
+make mcp
 ```
 
-### 3. Configure
-Create `config.yml` or use environment variables:
+The first `make rebuild` starts Memgraph on `localhost:7687`, runs `code-graph schema`, then `code-graph build`. Subsequent edits can use `code-graph update` (incremental) or the file watcher.
+
+## Make targets
+
+| Target | What it does |
+|---|---|
+| `make up` | Start Memgraph in the background |
+| `make down` | Stop all services |
+| `make logs` | Tail Memgraph logs |
+| `make schema` | Create Memgraph indexes |
+| `make build-graph` | Full graph build from `CONFIG` (default `config.yml`) |
+| `make rebuild` | `down` → `up` → `schema` → `build-graph` |
+| `make build-image` | Build the MCP server Docker image |
+| `make mcp` | Run the MCP server locally over stdio |
+| `make clean` | Stop services and delete the Memgraph volume |
+
+## Configuration
+
+`config.yml` (copy from `config_example.yml` if present; otherwise minimal):
+
 ```yaml
 repo_root: /path/to/your/codebase
-nginx_conf: /path/to/nginx.conf  # optional, for OpenResty
+nginx_conf: /path/to/nginx.conf       # optional (OpenResty endpoint tracing)
 memgraph:
   uri: bolt://localhost:7687
+ignore_patterns:
+  - node_modules
+  - .git
+  - dist
 ```
 
-Or set environment variables:
-```bash
-export REPO_ROOT=/path/to/your/codebase
-export NGINX_CONF=/path/to/nginx.conf
-export MEMGRAPH_URI=bolt://localhost:7687
-```
+Environment variables (see `.env.example`):
 
-### 4. Build the graph
-```bash
-bob-graph build                    # Full build
-bob-graph build -c config.yml      # With config file
-bob-graph update                   # Incremental update
-bob-graph validate                 # Run validation queries
-bob-graph stats                    # Print graph stats
-```
+| Var | Default | Purpose |
+|---|---|---|
+| `MEMGRAPH_URI` | `bolt://localhost:7687` | Bolt endpoint for the graph DB |
+| `REPO_ROOT` | `.` | Repo mounted read-only into the MCP container |
+| `CODE_GRAPH_MIDDLEWARE_FILES` | built-in | Comma-separated file substrings treated as middleware in `explain_flow` |
+| `CODE_GRAPH_MIDDLEWARE_FUNCTIONS` | built-in | Comma-separated function-name substrings treated as middleware |
 
-### 5. Start the MCP server
-```bash
-python -m mcp_server.server
-```
+## Registering with an MCP client
 
-Register in BOB's MCP config:
+Stdio transport — run the server directly:
+
 ```json
 {
   "mcpServers": {
     "code-graph": {
       "command": "python",
       "args": ["-m", "mcp_server.server"],
-      "env": {
-        "MEMGRAPH_URI": "bolt://localhost:7687"
-      }
+      "env": { "MEMGRAPH_URI": "bolt://localhost:7687" }
     }
   }
 }
 ```
 
-### 6. Start the file watcher (optional)
-```bash
-python -m watcher.file_watcher /path/to/your/codebase
+Or via Docker. Two forms — pick based on whether your MCP client lets you set a working directory.
+
+**With `cwd` support** (Claude Desktop, most modern clients) — uses the compose `mcp` service so it inherits networking and volume mounts:
+
+```json
+{
+  "mcpServers": {
+    "code-graph": {
+      "command": "docker",
+      "args": ["compose", "run", "--rm", "-T", "mcp"],
+      "cwd": "/abs/path/to/code-graph",
+      "env": { "REPO_ROOT": "/abs/path/to/your/codebase" }
+    }
+  }
+}
 ```
 
-## MCP Tools Available to BOB
+**Without `cwd` support** — call `docker run` directly. You must build the image first (`make build-image`) and know the compose-network name (`<project-dir>_default`):
 
-### Navigation
-- **get_dependencies** — What does this file import?
-- **get_dependents** — What imports this file?
-- **get_repo_overview** — Condensed map of most central files
-- **get_file_info** — Detailed info about a single file
+```json
+{
+  "mcpServers": {
+    "code-graph": {
+      "command": "docker",
+      "args": [
+        "run", "--rm", "-i",
+        "--network", "code-graph_default",
+        "-e", "MEMGRAPH_URI=bolt://memgraph:7687",
+        "-v", "/abs/path/to/your/codebase:/repo:ro",
+        "code-graph-mcp:local"
+      ]
+    }
+  }
+}
+```
 
-### Tracing
-- **trace_endpoint** — Full code path for an HTTP endpoint
-- **trace_call_chain** — Follow calls outgoing/incoming from a function
+## Incremental updates
 
-### Impact Analysis
-- **find_impacted_files** — Blast radius of changes to a file
-- **find_all_callers** — Every function that calls a given function
-- **find_implementors** — All subclasses/implementors of a class
-- **find_context_coupling** — Implicit coupling via ngx.ctx/ngx.shared
+```bash
+code-graph update -c config.yml        # Re-index files changed since last build (git diff)
+python -m watcher.file_watcher $REPO_ROOT  # Live file-watch re-indexing
+```
 
-### Search
-- **find_symbol** — Where is a function/class defined?
-- **get_module_exports** — Public API of a module
-- **get_lua_ngx_usage** — ngx.* APIs used in a Lua file
-- **search_files** — Find files by path pattern
+## Language support
 
-## Language Support
-
-| Language | Features Parsed |
+| Language | What's parsed |
 |---|---|
-| **Lua/OpenResty** | `_M` exports, `require`, `ngx.*` APIs, `pcall` wrappers, `ngx.ctx` coupling, nginx.conf phases |
-| **Python** | imports (absolute + relative), classes with inheritance, functions/methods, calls |
-| **Ruby** | `require`/`require_relative`, classes, modules, mixins (`include`/`extend`), Sinatra routes |
-| **JavaScript** | CommonJS `require`, ESM `import`, classes, functions/arrows, Express routes, exports |
+| **Lua / OpenResty** | `_M` exports, `require`, `ngx.*` APIs, `pcall` wrappers, `ngx.ctx` read/write coupling, `ngx.shared` dict usage, nginx.conf phases + endpoints |
+| **Python** | absolute + relative imports, classes + inheritance, functions + methods, calls |
+| **Ruby** | `require` / `require_relative`, classes, modules, mixins, Sinatra routes |
+| **JavaScript** | CommonJS `require`, ESM `import`, classes, functions + arrows, Express routes, exports |
+| **Go** | packages, imports, structs, methods |
+
+## Graph schema (summary)
+
+Nodes: `File`, `Module`, `Function`, `Class`, `Endpoint`, `NginxPhase`, `ContextKey`, `SharedDict`, `RedisKey`.
+
+Edges: `IMPORTS`, `REQUIRES`, `DEFINES`, `CALLS`, `HANDLES`, `HAS_PHASE`, `EXTENDS`, `INCLUDES`, `CTX_READS`, `CTX_WRITES`, `USES_SHARED`, `REDIS_READS`, `REDIS_WRITES`, `HTTP_CALLS`, `REROUTES_TO`.
 
 ## Testing
+
 ```bash
-python -m pytest graph_builder/tests/test_parsers.py -v
+python -m pytest graph_builder/tests -v
 ```
 
-## Project Structure
+## Project layout
+
 ```
-bob-code-graph/
-├── docker-compose.yml
+.
+├── DESIGN.md                 # agent-surface design decisions
+├── Dockerfile                # MCP server image
+├── docker-compose.yml        # Memgraph + mcp profile
+├── Makefile
 ├── pyproject.toml
-├── graph_builder/
-│   ├── main.py              ← CLI: build, update, validate, stats
-│   ├── config.py
-│   ├── scanner.py
-│   ├── change_tracker.py
-│   ├── parsers/
-│   │   ├── base.py          ← Data models + abstract parser
-│   │   ├── lua_parser.py    ← Lua + OpenResty
-│   │   ├── python_parser.py
-│   │   ├── ruby_parser.py
-│   │   ├── js_parser.py
-│   │   └── nginx_parser.py  ← nginx.conf entry points
-│   ├── resolvers/
-│   │   ├── lua_resolver.py
-│   │   ├── python_resolver.py
-│   │   ├── ruby_resolver.py
-│   │   └── js_resolver.py
-│   ├── ingestion/
-│   │   ├── schema.py        ← Memgraph indexes
-│   │   ├── writer.py        ← Batched Cypher writes
-│   │   └── incremental.py   ← Single-file re-indexing
-│   └── tests/
+├── config_example.yml
+├── graph_builder/            # scanner, parsers, resolvers, ingestion
 ├── mcp_server/
-│   ├── server.py            ← FastMCP server
+│   ├── server.py             # FastMCP, 7-tool surface
 │   ├── query_engine.py
 │   └── tools/
+│       ├── composites.py     # explain_flow, find_impact, onboard_to, locate
 │       ├── navigation.py
 │       ├── tracing.py
 │       ├── impact.py
-│       └── search.py
-└── watcher/
-    └── file_watcher.py      ← Live incremental updates
+│       ├── search.py
+│       └── snippets.py
+└── watcher/                  # live-reindex file watcher
 ```
+
+## License
+
+TBD.
