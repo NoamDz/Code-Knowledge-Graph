@@ -107,15 +107,27 @@ def get_file_outline(engine: QueryEngine, file_path: str) -> str:
 
     Returns a formatted summary of defined symbols, exports, and imports.
     """
-    # Get file metadata
+    # Try exact path match first; fall back to suffix match so callers can
+    # pass repo-relative paths even when the graph stores absolute ones.
     file_info = engine.query("""
         MATCH (f:File {path: $path})
-        RETURN f.language AS language, f.module_name AS module_name
+        RETURN f.path AS path, f.language AS language, f.module_name AS module_name
     """, path=file_path)
+    if not file_info:
+        file_info = engine.query("""
+            MATCH (f:File)
+            WHERE f.path ENDS WITH $suffix
+            RETURN f.path AS path, f.language AS language, f.module_name AS module_name
+            LIMIT 2
+        """, suffix=file_path if file_path.startswith("/") else "/" + file_path)
 
     if not file_info:
         return f"File '{file_path}' not found in the graph."
+    if len(file_info) > 1:
+        candidates = ", ".join(r["path"] for r in file_info)
+        return f"File suffix '{file_path}' is ambiguous. Candidates: {candidates}"
 
+    resolved_path = file_info[0]["path"]
     language = file_info[0].get("language", "unknown")
     module_name = file_info[0].get("module_name")
 
@@ -125,7 +137,7 @@ def get_file_outline(engine: QueryEngine, file_path: str) -> str:
         RETURN n.name AS name, n.line AS line, n.line_end AS line_end,
                labels(n) AS labels, n.visibility AS visibility
         ORDER BY n.line
-    """, path=file_path)
+    """, path=resolved_path)
 
     functions = []
     classes = []
@@ -146,14 +158,14 @@ def get_file_outline(engine: QueryEngine, file_path: str) -> str:
     imports = engine.query("""
         MATCH (f:File {path: $path})-[:IMPORTS|REQUIRES]->(target)
         RETURN count(target) AS count
-    """, path=file_path)
+    """, path=resolved_path)
     import_count = imports[0]["count"] if imports else 0
 
     # Get exports (public functions)
     exports = [f["name"] for f in functions if f["visibility"] == "public"]
 
     # Build output
-    header = f"File: {file_path} ({language})"
+    header = f"File: {resolved_path} ({language})"
     if module_name:
         header += f"\nModule: {module_name}"
 

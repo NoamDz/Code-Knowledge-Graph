@@ -403,16 +403,20 @@ def locate(engine: QueryEngine, description: str, limit: int = 10,
         return f"locate: no usable tokens in '{description}'."
 
     if escape_hatch:
+        # Memgraph does not support size([t IN $tokens WHERE ...]) over a
+        # parameter list, so we count token hits via UNWIND + sum instead.
         cypher = """
             MATCH (n)
             WHERE (n:Function OR n:Class OR n:Module OR n:File)
               AND ANY(t IN $tokens WHERE
                     toLower(coalesce(n.name, '')) CONTAINS t
                     OR toLower(coalesce(n.file, n.path, '')) CONTAINS t)
-            WITH n,
-                 size([t IN $tokens WHERE
-                    toLower(coalesce(n.name, '')) CONTAINS t
-                    OR toLower(coalesce(n.file, n.path, '')) CONTAINS t]) AS hits
+            WITH n
+            UNWIND $tokens AS tok
+            WITH n, sum(CASE WHEN
+                    toLower(coalesce(n.name, '')) CONTAINS tok
+                    OR toLower(coalesce(n.file, n.path, '')) CONTAINS tok
+                 THEN 1 ELSE 0 END) AS hits
             RETURN labels(n)[0] AS type,
                    coalesce(n.name, n.path) AS name,
                    coalesce(n.file, n.path) AS file,
@@ -439,10 +443,12 @@ def locate(engine: QueryEngine, description: str, limit: int = 10,
           AND ANY(t IN $tokens WHERE
                 toLower(coalesce(n.name, '')) CONTAINS t
                 OR toLower(coalesce(n.file, n.path, '')) CONTAINS t)
-        WITH n,
-             size([t IN $tokens WHERE
-                toLower(coalesce(n.name, '')) CONTAINS t
-                OR toLower(coalesce(n.file, n.path, '')) CONTAINS t]) AS hits
+        WITH n
+        UNWIND $tokens AS tok
+        WITH n, sum(CASE WHEN
+                toLower(coalesce(n.name, '')) CONTAINS tok
+                OR toLower(coalesce(n.file, n.path, '')) CONTAINS tok
+             THEN 1 ELSE 0 END) AS hits
         OPTIONAL MATCH (n)<-[r:IMPORTS|CALLS|DEFINES|HANDLES]-()
         WITH n, hits, count(r) AS in_edges
         RETURN labels(n)[0] AS type,
