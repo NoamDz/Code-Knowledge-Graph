@@ -254,7 +254,7 @@ def find_impact(engine: QueryEngine, symbol_or_file: str, max_depth: int = 5,
             MATCH (caller:Function)-[:CALLS*1..{depth}]->(fn:Function)
             WHERE fn.name CONTAINS $name
             RETURN DISTINCT caller.name AS caller, caller.file AS file, fn.name AS callee
-            ORDER BY caller.file
+            ORDER BY file
             LIMIT 100
         """, name=symbol_or_file)
         if callers:

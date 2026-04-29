@@ -30,7 +30,7 @@ def trace_endpoint(engine: QueryEngine, endpoint_path: str, max_depth: int = 6) 
             OPTIONAL MATCH (phase)-[:HANDLES]->(f:File)
             RETURN phase.phase_type AS phase, phase.lua_file AS lua_file,
                    phase.is_inline AS is_inline, f.path AS file_path
-            ORDER BY phase.phase_type
+            ORDER BY phase
         """, endpoint=ep_path)
 
         if not phases:
