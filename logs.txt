@@ -1,3 +1,4 @@
+(.venv) il021250@Noams-MacBook-Pro Code-Knowledge-Graph % python tests/smoke_test.py
 Symbol 'get_current' found in 20 locations:
   [Function] get_current_access in /Users/il021250/dev/pinpoint/src/ato/events/pinpoint_ato_current_session_dump/init.lua:52
   [Function] M.get_current_bulk_movements in /Users/il021250/dev/pinpoint/src/ato/helpers/remote_access_tool.lua:20
@@ -19,19 +20,98 @@ Symbol 'get_current' found in 20 locations:
   [Function] get_current_account_data_from_store in /Users/il021250/dev/pinpoint/src/ato/structured_policy/policy/model_prediction.lua:None
   [Function] get_current_account_data_from_redis in /Users/il021250/dev/pinpoint/src/ato/structured_policy/policy/model_prediction.lua:None
   [Function] M.get_current_access_data in /Users/il021250/dev/pinpoint/src/ato/structured_policy/policy/model_prediction.lua:157
-File 'src/ato/structured_policy/helpers.lua' not found in the graph.
+File: /Users/il021250/dev/pinpoint/src/ato/structured_policy/helpers.lua (lua)
+
+Functions:
+  get_time (lines 86-88, local)
+  filter_by_time_range (lines 170-185, local)
+  is_mobile_channel (lines 173-175, local)
+  get_session_time (lines 177-183, local)
+  create_default_module_if_empty (lines 185-201, local)
+  internal_sanitizer (lines 203-222, local)
+  add_pages_field_from_assess_vector (lines 224-240, local)
+  get_current_activity (lines 242-247, local)
+  get_last_trusteer_alert (lines 249-282, local)
+  Helpers.sanitizer (lines 284-291, public)
+  Helpers.format_device_info (lines 293-301, public)
+  Helpers.get_session_credential (lines 303-323, public)
+  Helpers.filter_by_time_range (lines 325-340, public)
+  Helpers.get_session_by_remote_address (lines 343-366, public)
+  get_mobile_sim_data (lines 368-374, local)
+  Helpers.get_entity_cluster (lines 382-414, public)
+  Helpers.get_payee_cluster (lines 422-453, public)
+  Helpers.match (lines 455-486, public)
+  Helpers.get_current_session_rat (lines 488-504, public)
+  Helpers.get_current_session_pages (lines 506-516, public)
+  Helpers.get_model_prediction_current (lines 518-532, public)
+  increment_model_prediction_stat (lines 534-540, local)
+  Helpers.get_keystrokes_biometric (lines 542-590, public)
+  get_current_session_cached_keystrokes_data (lines 592-605, local)
+  Helpers.get_keystrokes_sessions_data (lines 607-655, public)
+  Helpers.get_keystrokes_count (lines 657-674, public)
+  Helpers.get_max_risk_score_data_for_session (lines 676-698, public)
+  Helpers.get_session_blocked_from_db (lines 700-710, public)
+  Helpers.fill_missing_device_data_from_client_info (lines 712-722, public)
+  Helpers.get_global_device (lines 724-752, public)
+  Helpers.get_device (lines 754-787, public)
+  Helpers.get_session (lines 789-796, public)
+  model_name_to_table_name (lines 798-801, local)
+  Helpers.get_suspicious_policies (lines 803-814, public)
+  Helpers.get_new_account_data (lines 816-826, public)
+  Helpers.get_mobile_data (lines 828-842, public)
+  Helpers.get_session_no_js (lines 844-850, public)
+  Helpers.get_not_found_puid_candidates (lines 852-862, public)
+  store_user_attributes_fetched_keys (lines 864-877, local)
+  filter_user_attributes (lines 879-889, local)
+  Helpers.get_user_attrs_key_value_list (lines 891-977, public)
+  Helpers.get_user_attributes_key_list (lines 979-987, public)
+  Helpers.get_user_profile (lines 989-1110, public)
+  user_profile_integrity_check_applicable (lines 1103-1115, local)
+  Helpers.get_failed_logins (lines 1112-1147, public)
+  indicate_corrupted_user_profile (lines 1117-1125, local)
+  Helpers.get_calculated_attributes_counters (lines 1149-1169, public)
+  Helpers.get_calculated_attributes_raw_data (lines 1171-1187, public)
+  Helpers.get_phishing_detection_results (lines 1189-1214, public)
+  is_super_user (lines 1216-1232, local)
+  Helpers.add_app_business_insights (lines 1234-1239, public)
+  get_embedding_host (lines 1241-1244, local)
+  align_gd_id_dates (lines 1246-1280, local)
+  get_device_from_shared_state (lines 1282-1292, local)
+  calculate_session_duration (lines 1294-1315, local)
+  create_research_event (lines 1318-1324, local)
+  Helpers.create_collections_track_research_event (lines 1318-1324, public)
+  set_malware_collection_info_to_assessment (lines 1326-1351, local)
+  Helpers.get_current (lines 1353-1630, public)
+  Helpers.extract_error (lines 1632-1638, public)
+  Helpers.save_policy_error (lines 1640-1654, public)
+  Helpers.is_valid_common_items_input (lines 1656-1662, public)
+  record_policy_run_reached_time_limit (lines 1669-1685, local)
+  Helpers.has_exceeded_time_limit (lines 1690-1710, public)
+  Helpers.get_previous_custom_attributes (lines 1712-1729, public)
+  Helpers.get_transaction_data (lines 1733-1771, public)
+  Helpers.get_latest_transaction_data (lines 1774-1788, public)
+
+Classes:
+  (none)
+
+Exports: Helpers.sanitizer, Helpers.format_device_info, Helpers.get_session_credential, Helpers.filter_by_time_range, Helpers.get_session_by_remote_address, Helpers.get_entity_cluster, Helpers.get_payee_cluster, Helpers.match, Helpers.get_current_session_rat, Helpers.get_current_session_pages, Helpers.get_model_prediction_current, Helpers.get_keystrokes_biometric, Helpers.get_keystrokes_sessions_data, Helpers.get_keystrokes_count, Helpers.get_max_risk_score_data_for_session, Helpers.get_session_blocked_from_db, Helpers.fill_missing_device_data_from_client_info, Helpers.get_global_device, Helpers.get_device, Helpers.get_session, Helpers.get_suspicious_policies, Helpers.get_new_account_data, Helpers.get_mobile_data, Helpers.get_session_no_js, Helpers.get_not_found_puid_candidates, Helpers.get_user_attrs_key_value_list, Helpers.get_user_attributes_key_list, Helpers.get_user_profile, Helpers.get_failed_logins, Helpers.get_calculated_attributes_counters, Helpers.get_calculated_attributes_raw_data, Helpers.get_phishing_detection_results, Helpers.add_app_business_insights, Helpers.create_collections_track_research_event, Helpers.get_current, Helpers.extract_error, Helpers.save_policy_error, Helpers.is_valid_common_items_input, Helpers.has_exceeded_time_limit, Helpers.get_previous_custom_attributes, Helpers.get_transaction_data, Helpers.get_latest_transaction_data
+Imports: 64 total
+locate 'session_info' — tokens ['session_info'], top 5:
+  [Function] new — /Users/il021250/dev/pinpoint/src/lib/lua/session_info.lua (hits=1, in_edges=1169, score=7.07)
+  [Function] new — /Users/il021250/dev/pinpoint/src/ato/models/session_info.lua (hits=1, in_edges=1101, score=7.01)
+  [Function] new — /Users/il021250/dev/pinpoint/src/ato/models/session_info_geoip.lua (hits=1, in_edges=1097, score=7.00)
+  [Function] collect — /Users/il021250/dev/pinpoint/src/common/collectors/session_info/templates/session_info.js.erb:35 (hits=1, in_edges=406, score=6.01)
+  [Function] run — /Users/il021250/dev/pinpoint/src/malware/generator/preprocess/session_info.rb (hits=1, in_edges=342, score=5.84)
 Traceback (most recent call last):
-  File "/Users/il021250/dev/Code-Knowledge-Graph/tests/smoke_test.py", line 11, in <module>
-    print(composites.locate(eng, "session_info", limit=5))
-  File "/Users/il021250/dev/Code-Knowledge-Graph/mcp_server/tools/composites.py", line 458, in locate
-    results = engine.query(cypher, tokens=tokens, limit=limit)
-  File "/Users/il021250/dev/Code-Knowledge-Graph/mcp_server/query_engine.py", line 21, in query
-    result = session.run(cypher, **params)
-  File "/Users/il021250/dev/Code-Knowledge-Graph/.venv/lib/python3.10/site-packages/neo4j/_sync/work/session.py", line 320, in run
-    self._auto_result._run(
-  File "/Users/il021250/dev/Code-Knowledge-Graph/.venv/lib/python3.10/site-packages/neo4j/_sync/work/result.py", line 237, in _run
-    self._attach()
-  File "/Users/il021250/dev/Code-Knowledge-Graph/.venv/lib/python3.10/site-packages/neo4j/_sync/work/result.py", line 439, in _attach
+  File "/Users/il021250/dev/Code-Knowledge-Graph/tests/smoke_test.py", line 12, in <module>
+    print(composites.find_impact(eng, "session_info"))
+  File "/Users/il021250/dev/Code-Knowledge-Graph/mcp_server/tools/composites.py", line 253, in find_impact
+    callers = engine.query(f"""
+  File "/Users/il021250/dev/Code-Knowledge-Graph/mcp_server/query_engine.py", line 22, in query
+    return [dict(record) for record in result]
+  File "/Users/il021250/dev/Code-Knowledge-Graph/mcp_server/query_engine.py", line 22, in <listcomp>
+    return [dict(record) for record in result]
+  File "/Users/il021250/dev/Code-Knowledge-Graph/.venv/lib/python3.10/site-packages/neo4j/_sync/work/result.py", line 407, in __iter__
     self._connection.fetch_message()
   File "/Users/il021250/dev/Code-Knowledge-Graph/.venv/lib/python3.10/site-packages/neo4j/_sync/io/_common.py", line 193, in inner
     func(*args, **kwargs)
@@ -41,4 +121,4 @@ Traceback (most recent call last):
     response.on_failure(summary_metadata or {})
   File "/Users/il021250/dev/Code-Knowledge-Graph/.venv/lib/python3.10/site-packages/neo4j/_sync/io/_common.py", line 263, in on_failure
     raise self._hydrate_error(metadata)
-neo4j.exceptions.TransientError: {neo4j_code: Memgraph.TransientError.MemgraphError.MemgraphError} {message: Not yet implemented: atom expression '[tIN$tokensWHEREtoLower(coalesce(n.name,"a"))CONTAINStORtoLower(coalesce(n.file,n.path,"a"))CONTAINSt]'} {gql_status: 50N42} {gql_status_description: error: general processing exception - unexpected error. Not yet implemented: atom expression '[tIN$tokensWHEREtoLower(coalesce(n.name,"a"))CONTAINStORtoLower(coalesce(n.file,n.path,"a"))CONTAINSt]'}
+neo4j.exceptions.ClientError: {neo4j_code: Memgraph.ClientError.MemgraphError.MemgraphError} {message: Only nodes, edges, maps, temporal types and graphs have properties to be looked up.} {gql_status: 50N42} {gql_status_description: error: general processing exception - unexpected error. Only nodes, edges, maps, temporal types and graphs have properties to be looked up.}
