@@ -24,11 +24,14 @@ def engine():
         pytest.skip(f"QueryEngine import failed: {exc}")
 
     uri = os.environ.get("MEMGRAPH_URI", "bolt://localhost:7687")
-    eng = QueryEngine(uri)
     try:
+        eng = QueryEngine(uri)
         eng.query("RETURN 1 AS ok")  # forces a real connection
     except Exception as exc:
-        eng.close()
+        try:
+            eng.close()
+        except Exception:
+            pass
         pytest.skip(f"no graph reachable at {uri}: {exc}")
     yield eng
     eng.close()
