@@ -2,6 +2,7 @@
 """Declarative eval cases for the MCP tool surface (data + pure helpers only)."""
 from __future__ import annotations
 
+import pathlib
 import re
 from dataclasses import dataclass, field
 
@@ -36,3 +37,31 @@ def check_output(output: str | None, case: EvalCase) -> list[str]:
         if n < case.min_lines:
             failures.append(f"{case.label()}: expected >= {case.min_lines} non-empty lines, got {n}")
     return failures
+
+
+# Matches "function a.b.c()", "function a:b()", "local function x()", "function x()".
+_LUA_DEF = re.compile(r"^\s*(?:local\s+)?function\s+([\w.:]+)", re.MULTILINE)
+
+
+def discover_lua_definitions(root: str, limit: int = 10) -> list[tuple[str, str]]:
+    """Scan *.lua under root, return up to `limit` (bare_name, abs_path) pairs.
+
+    Independent of the project's own parser/graph, so it can serve as an answer
+    key. Returns [] when root does not exist (e.g. running with no source).
+    """
+    base = pathlib.Path(root)
+    if not base.is_dir():
+        return []
+    out: list[tuple[str, str]] = []
+    for path in sorted(base.rglob("*.lua")):
+        try:
+            text = path.read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            continue
+        for m in _LUA_DEF.finditer(text):
+            bare = m.group(1).split(".")[-1].split(":")[-1]
+            if bare:
+                out.append((bare, str(path)))
+            if len(out) >= limit:
+                return out
+    return out

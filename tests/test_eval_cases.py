@@ -32,3 +32,25 @@ def test_min_lines_counts_only_nonempty_lines():
     case = EvalCase("onboard_to", {"area": "x"}, min_lines=3, id="c5")
     failures = check_output("line1\n\nline2", case)  # only 2 non-empty lines
     assert failures and ("min" in failures[0].lower() or ">=" in failures[0])
+
+
+from tests.eval_cases import discover_lua_definitions
+
+
+def test_discover_finds_global_and_local_lua_functions(tmp_path):
+    f = tmp_path / "sample.lua"
+    f.write_text(
+        "function Helpers.get_session() end\n"
+        "local function internal_helper() end\n"
+        "function plain_global() end\n",
+        encoding="utf-8",
+    )
+    found = discover_lua_definitions(str(tmp_path), limit=10)
+    names = {name for name, _ in found}
+    assert {"get_session", "internal_helper", "plain_global"} <= names
+    # paths point at the real file
+    assert all(path.endswith("sample.lua") for _, path in found)
+
+
+def test_discover_returns_empty_for_missing_root():
+    assert discover_lua_definitions("/no/such/dir", limit=10) == []
