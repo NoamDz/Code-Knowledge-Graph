@@ -1,5 +1,5 @@
 # tests/test_eval_cases.py
-from tests.eval_cases import EvalCase, check_output
+from tests.eval_cases import EvalCase, check_output, discover_lua_definitions
 
 
 def test_missing_substring_is_reported():
@@ -32,9 +32,6 @@ def test_min_lines_counts_only_nonempty_lines():
     case = EvalCase("onboard_to", {"area": "x"}, min_lines=3, id="c5")
     failures = check_output("line1\n\nline2", case)  # only 2 non-empty lines
     assert failures and ("min" in failures[0].lower() or ">=" in failures[0])
-
-
-from tests.eval_cases import discover_lua_definitions
 
 
 def test_discover_finds_global_and_local_lua_functions(tmp_path):

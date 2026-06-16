@@ -48,6 +48,10 @@ def discover_lua_definitions(root: str, limit: int = 10) -> list[tuple[str, str]
 
     Independent of the project's own parser/graph, so it can serve as an answer
     key. Returns [] when root does not exist (e.g. running with no source).
+
+    Scanning stops mid-file once `limit` pairs are collected, and the regex may
+    capture a `function` keyword inside a Lua block comment -- acceptable because
+    this only needs to yield some true pairs, not an exhaustive list.
     """
     base = pathlib.Path(root)
     if not base.is_dir():
