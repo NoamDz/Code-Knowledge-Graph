@@ -41,9 +41,8 @@ def run_tool(engine, tool: str, inp: dict) -> str:
     raise ValueError(f"unknown tool {tool!r}")
 
 
-@pytest.mark.parametrize("case", LIVENESS_CASES, ids=lambda c: c.id)
-def test_tool_is_alive(engine, case):
-    """Each tool runs on a known input and returns non-empty output."""
+def _run_and_check(engine, case):
+    """Skip if the case has unset (None) inputs; otherwise run the tool and assert."""
     if any(v is None for v in case.input.values()):
         pytest.skip(f"{case.id}: sample anchor not set (fill it in eval_cases.py)")
     output = run_tool(engine, case.tool, case.input)  # must not raise
@@ -51,27 +50,34 @@ def test_tool_is_alive(engine, case):
     assert not failures, "\n".join(failures)
 
 
+@pytest.mark.parametrize("case", LIVENESS_CASES, ids=lambda c: c.id)
+def test_tool_is_alive(engine, case):
+    """Each tool runs on a known input and returns non-empty output."""
+    _run_and_check(engine, case)
+
+
 @pytest.mark.parametrize("case", DIFFERENTIAL_CASES, ids=lambda c: c.id)
 def test_escape_hatch_changes_output(engine, case):
-    """escape_hatch=True must visibly change a composite's output."""
+    """Smoke check that the escape_hatch path is wired and yields a different
+    response. NOTE: this only proves the two outputs differ -- because composites
+    also change static labels, it does not by itself prove the filtering/rerank
+    altered the underlying data. A stronger per-tool differential (e.g. a known
+    middleware name present only when expanded) is tracked in the fix plan.
+    """
     if any(v is None for v in case.input.values()):
         pytest.skip(f"{case.id}: sample anchor not set")
     filtered = run_tool(engine, case.tool, {**case.input, "escape_hatch": False})
     expanded = run_tool(engine, case.tool, {**case.input, "escape_hatch": True})
     assert filtered != expanded, (
-        f"{case.id}: escape_hatch=True produced identical output -- the composite's "
-        f"filtering/rerank had no effect (or the chosen input has nothing to filter)."
+        f"{case.id}: escape_hatch=True produced identical output -- the escape "
+        f"hatch is not wired for this tool."
     )
 
 
 @pytest.mark.parametrize("case", BOB_CASES, ids=lambda c: c.id)
 def test_bob_anchor(engine, case):
     """Ground-truth anchors from the BOB answer key (red until the tools are fixed)."""
-    if any(v is None for v in case.input.values()):
-        pytest.skip(f"{case.id}: anchor not set")
-    output = run_tool(engine, case.tool, case.input)
-    failures = check_output(output, case)
-    assert not failures, "\n".join(failures)
+    _run_and_check(engine, case)
 
 
 _REPO_ROOT = os.environ.get("CODE_GRAPH_REPO_ROOT", "")

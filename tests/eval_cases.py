@@ -115,8 +115,10 @@ BOB_CASES = [
              must_contain=["save", "find_by_session_id"], id="bob-outline-session_device_data",
              note="answer-key S2: known public functions"),
     EvalCase("find_impact", {"symbol_or_file": "src/ato/models/session_device_data.lua"},
-             must_not_contain=[r"\(none\)", "Traceback"], id="bob-impact-session_device_data",
-             note="answer-key S2: 100+ usages exist; must not be empty/crash"),
+             must_not_contain=[r"\(none\)", "Traceback"], min_lines=2,
+             id="bob-impact-session_device_data",
+             note="answer-key S2: 100+ usages exist; must not be empty/crash. min_lines "
+                  "guards against an empty response slipping past must_not_contain."),
     EvalCase("onboard_to", {"area": "src/ato"},
              must_contain=["models", "handlers"],
              must_not_contain=["Unbound variable", "Traceback"],

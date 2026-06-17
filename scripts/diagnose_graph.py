@@ -11,8 +11,6 @@ or a data gap.
 """
 from __future__ import annotations
 
-import os
-
 from mcp_server.query_engine import QueryEngine
 
 QUERIES = [
@@ -38,7 +36,7 @@ QUERIES = [
 
 
 def main() -> None:
-    engine = QueryEngine(os.environ.get("MEMGRAPH_URI", "bolt://localhost:7687"))
+    engine = QueryEngine()  # reads MEMGRAPH_URI itself, defaulting to bolt://localhost:7687
     try:
         for title, cypher in QUERIES:
             print(f"\n=== {title} ===")
