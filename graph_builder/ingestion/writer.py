@@ -142,22 +142,28 @@ class GraphWriter:
     }
 
     _edge_queries: dict[str, str] = {
+        # NOTE: these MERGE their endpoint nodes rather than MATCH them. File
+        # nodes are buffered and may not be flushed yet when an edge batch
+        # auto-flushes mid-stream; a MATCH would silently find nothing and drop
+        # the edge (this caused DEFINES/IMPORTS to lose ~90% of edges). MERGE is
+        # idempotent — upsert_file/upsert_function SET the real props on the same
+        # key whenever their buffers flush.
         "DEFINES_Function": """
             UNWIND $batch AS row
-            MATCH (f:File {path: row.file})
-            MATCH (fn:Function {name: row.name, file: row.file})
+            MERGE (f:File {path: row.file})
+            MERGE (fn:Function {name: row.name, file: row.file})
             MERGE (f)-[:DEFINES]->(fn)
         """,
         "DEFINES_Class": """
             UNWIND $batch AS row
-            MATCH (f:File {path: row.file})
-            MATCH (c:Class {name: row.name, file: row.file})
+            MERGE (f:File {path: row.file})
+            MERGE (c:Class {name: row.name, file: row.file})
             MERGE (f)-[:DEFINES]->(c)
         """,
         "IMPORTS": """
             UNWIND $batch AS row
-            MATCH (a:File {path: row.from_file})
-            MATCH (b:File {path: row.to_file})
+            MERGE (a:File {path: row.from_file})
+            MERGE (b:File {path: row.to_file})
             MERGE (a)-[r:IMPORTS {module: row.module}]->(b)
             SET r.local_binding = row.local_binding
         """,
@@ -265,7 +271,7 @@ class GraphWriter:
         Kept as direct _run() because it involves conditional SET on the Module node.
         """
         self._run("""
-            MATCH (f:File {path: $from_file})
+            MERGE (f:File {path: $from_file})
             MERGE (m:Module {name: $module})
             SET m.is_external = true, m.is_dynamic = $is_dynamic
             MERGE (f)-[:REQUIRES {module: $module}]->(m)
@@ -459,7 +465,10 @@ class GraphWriter:
         # Imports
         for imp in ast.imports:
             resolved_path = resolved_imports.get(imp.module_string)
-            if resolved_path:
+            # Markers like "__go_stdlib__" / "__python_stdlib__" / "__go_external__"
+            # are classifications, not real file paths — treat them as external
+            # (REQUIRES -> Module) rather than IMPORTS to a junk File node.
+            if resolved_path and not resolved_path.startswith("__"):
                 self.upsert_import(ast.file_path, resolved_path, imp.module_string,
                                    local_binding=imp.local_binding)
             else:
