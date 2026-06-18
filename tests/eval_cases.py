@@ -88,8 +88,8 @@ def discover_lua_definitions(root: str, limit: int = 10) -> list[tuple[str, str]
 # whose input contains None is skipped automatically by the tests.
 # ---------------------------------------------------------------------------
 SAMPLE_SYMBOL = "get_current"   # a function known to exist in the graph
-SAMPLE_FILE = None              # e.g. "/abs/path/.../helpers.lua"
-SAMPLE_ENDPOINT = None          # e.g. "/api/..." (a real Endpoint node path)
+SAMPLE_FILE = "/Users/il021250/dev/pinpoint/src/ato/handlers/session_info/init.lua"              # e.g. "/abs/path/.../helpers.lua"
+SAMPLE_ENDPOINT = "/tasks"          # e.g. "/api/..." (a real Endpoint node path)
 
 LIVENESS_CASES = [
     EvalCase("find_symbol", {"symbol_name": SAMPLE_SYMBOL}, min_lines=1, id="live-find_symbol"),

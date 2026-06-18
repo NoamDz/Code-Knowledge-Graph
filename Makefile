@@ -33,10 +33,10 @@ build-image:
 	docker compose build mcp
 
 schema:
-	code-graph schema -c $(CONFIG)
+	code-graph -c $(CONFIG) schema
 
 build-graph:
-	code-graph build -c $(CONFIG)
+	code-graph -c $(CONFIG) build 
 
 rebuild: down up wait-memgraph
 	$(MAKE) schema
@@ -55,7 +55,7 @@ mcp:
 	python -m mcp_server.server
 
 stats:
-	code-graph validate -c $(CONFIG) || true
+	code-graph -c $(CONFIG) validate || true
 
 clean:
 	docker compose down -v
