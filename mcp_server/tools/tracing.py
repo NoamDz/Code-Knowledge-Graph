@@ -52,13 +52,15 @@ def trace_endpoint(engine: QueryEngine, endpoint_path: str, max_depth: int = 6) 
             all_lines.append(f"{indent}  [{phase}] → {lua_file}")
 
             if lua_file and lua_file != "(inline)":
-                calls = engine.query("""
-                    MATCH path = (fn:Function {file: $file})-[:CALLS*1..$depth]->(called:Function)
+                # Cypher cannot parameterize variable-length bounds; clamp + interpolate.
+                _d = max(1, min(int(max_depth), 6))
+                calls = engine.query(f"""
+                    MATCH path = (fn:Function {{file: $file}})-[:CALLS*1..{_d}]->(called:Function)
                     RETURN fn.name AS from_func,
                            [node in nodes(path) | node.name] AS chain,
                            [node in nodes(path) | node.file] AS files
                     LIMIT 20
-                """, file=lua_file, depth=max_depth)
+                """, file=lua_file)
 
                 if calls:
                     for c in calls[:5]:
@@ -106,7 +108,7 @@ def find_all_callers(engine: QueryEngine, function_name: str) -> str:
         MATCH (caller:Function)-[:CALLS]->(fn:Function)
         WHERE fn.name CONTAINS $name
         RETURN caller.name AS caller, caller.file AS file, fn.name AS callee
-        ORDER BY caller.file
+        ORDER BY file
     """, name=function_name)
 
     if not results:

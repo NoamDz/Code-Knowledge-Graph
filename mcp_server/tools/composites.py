@@ -228,20 +228,41 @@ def find_impact(engine: QueryEngine, symbol_or_file: str, max_depth: int = 5,
     sections: list[str] = [f"Impact for {symbol_or_file}"]
 
     if looks_like_path:
-        file_path = symbol_or_file.replace("\\", "/")
-        deps = engine.query(f"""
-            MATCH (dep:File)-[:IMPORTS*1..{depth}]->(f:File {{path: $path}})
+        raw = symbol_or_file.replace("\\", "/")
+        # File paths are stored absolute; accept a repo-relative input via suffix match.
+        resolved = engine.query("""
+            MATCH (f:File)
+            WHERE f.path = $p OR f.path ENDS WITH $suffix
+            RETURN f.path AS path ORDER BY size(f.path) LIMIT 1
+        """, p=raw, suffix=raw if raw.startswith("/") else "/" + raw)
+        file_path = resolved[0]["path"] if resolved else raw
+
+        # Dependents = files that import this one (IMPORTS/REQUIRES) PLUS files whose
+        # functions call functions defined here (CALLS — the dense, reliable signal,
+        # matched via the Function.file property rather than the sparse DEFINES edge).
+        importers = engine.query(f"""
+            MATCH (dep:File)-[:IMPORTS|REQUIRES*1..{depth}]->(f:File {{path: $path}})
             RETURN DISTINCT dep.path AS path, dep.language AS language
-            ORDER BY dep.path
         """, path=file_path)
-        if deps:
-            sections.append(f"\nTransitive dependents ({len(deps)} files, depth ≤ {depth}):")
-            for d in deps[:30]:
-                sections.append(f"  {d['path']} [{d.get('language') or '?'}]")
-            if len(deps) > 30:
-                sections.append(f"  ... and {len(deps) - 30} more")
+        callers = engine.query("""
+            MATCH (fn:Function {file: $path})<-[:CALLS]-(caller:Function)
+            WHERE caller.file IS NOT NULL AND caller.file <> $path
+            RETURN DISTINCT caller.file AS path
+            LIMIT 100
+        """, path=file_path)
+        dependents: dict[str, str | None] = {d["path"]: d.get("language") for d in importers}
+        for c in callers:
+            dependents.setdefault(c["path"], None)
+
+        if dependents:
+            sections.append(f"\nDependents ({len(dependents)} files — importers + callers, depth ≤ {depth}):")
+            for p in sorted(dependents)[:30]:
+                lang = dependents[p]
+                sections.append(f"  {p}{f' [{lang}]' if lang else ''}")
+            if len(dependents) > 30:
+                sections.append(f"  ... and {len(dependents) - 30} more")
         else:
-            sections.append("\nTransitive dependents: (none)")
+            sections.append("\nDependents: none found")
 
         implicit = impact_tools.get_implicit_dependencies(engine, file_path)
         sections.append("\n" + implicit)
@@ -333,7 +354,7 @@ def onboard_to(engine: QueryEngine, area: str, escape_hatch: bool = False) -> st
         MATCH (f:File)-[:DEFINES]->(fn:Function)
         WHERE f.path CONTAINS $area {visibility_clause}
         RETURN f.path AS file, collect(fn.name) AS names
-        ORDER BY f.path
+        ORDER BY file
         LIMIT 20
     """, area=area_norm)
     if exports:
@@ -348,7 +369,7 @@ def onboard_to(engine: QueryEngine, area: str, escape_hatch: bool = False) -> st
         MATCH (e:Endpoint)-[:HAS_PHASE]->(:NginxPhase)-[:HANDLES]->(f:File)
         WHERE f.path CONTAINS $area
         RETURN DISTINCT e.path AS endpoint
-        ORDER BY e.path
+        ORDER BY endpoint
         LIMIT 15
     """, area=area_norm)
     if endpoints:
@@ -360,7 +381,7 @@ def onboard_to(engine: QueryEngine, area: str, escape_hatch: bool = False) -> st
         MATCH (fn:Function)-[:REDIS_READS|REDIS_WRITES]->(k:RedisKey)
         WHERE fn.file CONTAINS $area
         RETURN DISTINCT k.name AS key
-        ORDER BY k.name
+        ORDER BY key
         LIMIT 15
     """, area=area_norm)
     if redis:

@@ -33,8 +33,10 @@ def get_code_snippet(engine: QueryEngine, name: str, context_lines: int = 0) -> 
         MATCH (n)
         WHERE (n:Function OR n:Class)
           AND n.name CONTAINS $name
+          AND n.line IS NOT NULL
         RETURN n.name AS name, n.file AS file, n.line AS line,
                n.line_end AS line_end, labels(n) AS labels
+        ORDER BY CASE WHEN n.name = $name THEN 0 ELSE 1 END, n.line
         LIMIT 10
     """, name=name)
 
