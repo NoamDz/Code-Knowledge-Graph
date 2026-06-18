@@ -348,6 +348,29 @@ def onboard_to(engine: QueryEngine, area: str, escape_hatch: bool = False) -> st
     else:
         lines.append(f"\nNo files matched '{area_norm}'.")
 
+    # Area structure: immediate sub-directories under the area, by file count.
+    # This is the onboarding overview an agent needs first (handlers/, models/,
+    # assessors/, ...) — most-imported files alone hide whole subsystems.
+    area_files = engine.query("""
+        MATCH (f:File)
+        WHERE f.path CONTAINS $area
+        RETURN f.path AS path
+    """, area=area_norm)
+    subdirs: dict[str, int] = {}
+    for row in area_files:
+        p = row["path"].replace("\\", "/")
+        idx = p.find(area_norm)
+        if idx == -1:
+            continue
+        rest = p[idx + len(area_norm):].lstrip("/")
+        parts = rest.split("/")
+        if len(parts) > 1 and parts[0]:
+            subdirs[parts[0]] = subdirs.get(parts[0], 0) + 1
+    if subdirs:
+        lines.append(f"\nStructure of '{area_norm}' ({len(area_files)} files, {len(subdirs)} sub-areas):")
+        for name, cnt in sorted(subdirs.items(), key=lambda kv: (-kv[1], kv[0]))[:25]:
+            lines.append(f"  {name}/ ({cnt})")
+
     # Exports — public-only by default, all visibility under escape_hatch.
     visibility_clause = "" if escape_hatch else "AND fn.visibility = 'public'"
     exports = engine.query(f"""
