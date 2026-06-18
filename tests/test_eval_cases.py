@@ -51,3 +51,13 @@ def test_discover_finds_global_and_local_lua_functions(tmp_path):
 
 def test_discover_returns_empty_for_missing_root():
     assert discover_lua_definitions("/no/such/dir", limit=10) == []
+
+
+def test_discover_skips_vendored_dirs(tmp_path):
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "real.lua").write_text("function real_fn() end\n", encoding="utf-8")
+    (tmp_path / "dockers").mkdir()
+    (tmp_path / "dockers" / "vendored.lua").write_text("function vendored_fn() end\n", encoding="utf-8")
+    names = {n for n, _ in discover_lua_definitions(str(tmp_path), limit=10)}
+    assert "real_fn" in names
+    assert "vendored_fn" not in names  # under an ignored dir

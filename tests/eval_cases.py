@@ -42,6 +42,14 @@ def check_output(output: str | None, case: EvalCase) -> list[str]:
 # Matches "function a.b.c()", "function a:b()", "local function x()", "function x()".
 _LUA_DEF = re.compile(r"^\s*(?:local\s+)?function\s+([\w.:]+)", re.MULTILINE)
 
+# Dirs the graph build typically excludes (vendored clones / build output). The
+# oracle must scan the same scope the graph indexes, or it reports false
+# mismatches for files the graph never saw (e.g. dockers/.../clones/.../test).
+_IGNORE_DIRS = frozenset({
+    ".git", "node_modules", "dist", "build", "vendor",
+    "dockers", "dev-resources", "clones",
+})
+
 
 def discover_lua_definitions(root: str, limit: int = 10) -> list[tuple[str, str]]:
     """Scan *.lua under root, return up to `limit` (bare_name, abs_path) pairs.
@@ -58,6 +66,8 @@ def discover_lua_definitions(root: str, limit: int = 10) -> list[tuple[str, str]
         return []
     out: list[tuple[str, str]] = []
     for path in sorted(base.rglob("*.lua")):
+        if any(part in _IGNORE_DIRS for part in path.parts):
+            continue
         try:
             text = path.read_text(encoding="utf-8", errors="ignore")
         except OSError:
