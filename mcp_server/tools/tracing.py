@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from ..query_engine import QueryEngine
+from .endpoint_match import resolve_endpoint, extract_chain
 
 # OpenResty phase execution order
 PHASE_ORDER = [
@@ -12,8 +13,26 @@ PHASE_ORDER = [
 ]
 
 
+def resolve_endpoint_path(engine: QueryEngine, endpoint: str) -> str:
+    """Map a concrete request URL to a stored Endpoint.path.
+
+    Exact node match wins; otherwise fall back to nginx regex-location matching
+    (regex locations are stored verbatim, so '=' lookups never hit them).
+    Returns the original string when nothing matches.
+    """
+    exact = engine.query(
+        "MATCH (e:Endpoint {path: $p}) RETURN e.path AS path LIMIT 1", p=endpoint
+    )
+    if exact:
+        return endpoint
+    rows = engine.query("MATCH (e:Endpoint) RETURN e.path AS path")
+    matched = resolve_endpoint(endpoint, [r["path"] for r in rows if r.get("path")])
+    return matched or endpoint
+
+
 def trace_endpoint(engine: QueryEngine, endpoint_path: str, max_depth: int = 6) -> str:
     """Trace the complete code path for an HTTP endpoint, following internal reroutes."""
+    endpoint_path = resolve_endpoint_path(engine, endpoint_path)
     visited: set[str] = set()
     all_lines: list[str] = []
 
@@ -56,15 +75,14 @@ def trace_endpoint(engine: QueryEngine, endpoint_path: str, max_depth: int = 6) 
                 _d = max(1, min(int(max_depth), 6))
                 calls = engine.query(f"""
                     MATCH path = (fn:Function {{file: $file}})-[:CALLS*1..{_d}]->(called:Function)
-                    RETURN fn.name AS from_func,
-                           [node in nodes(path) | node.name] AS chain,
-                           [node in nodes(path) | node.file] AS files
+                    RETURN nodes(path) AS ns
                     LIMIT 20
                 """, file=lua_file)
 
                 if calls:
                     for c in calls[:5]:
-                        chain = " → ".join(c["chain"])
+                        names, _files = extract_chain(c["ns"])
+                        chain = " → ".join(n for n in names if n)
                         all_lines.append(f"{indent}    {chain}")
 
         # Follow REROUTES_TO edges from functions in this endpoint's files

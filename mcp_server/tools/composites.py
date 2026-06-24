@@ -14,6 +14,7 @@ from pathlib import Path
 from ..query_engine import QueryEngine
 from . import impact as impact_tools
 from . import tracing as tracing_tools
+from .endpoint_match import extract_chain
 
 
 # ---------------------------------------------------------------------------
@@ -117,6 +118,9 @@ def explain_flow(engine: QueryEngine, endpoint: str, escape_hatch: bool = False)
     and the ngx.ctx state-key heuristic.
     With escape_hatch=True, returns the raw call-centric trace including middleware.
     """
+    requested = endpoint
+    endpoint = tracing_tools.resolve_endpoint_path(engine, endpoint)
+
     if escape_hatch:
         raw = tracing_tools.trace_endpoint(engine, endpoint, max_depth=6)
         cross = impact_tools.trace_cross_service_flow(engine, endpoint)
@@ -130,11 +134,14 @@ def explain_flow(engine: QueryEngine, endpoint: str, escape_hatch: bool = False)
     """, endpoint=endpoint)
 
     if not phases:
-        return f"Endpoint '{endpoint}' not found in graph."
+        return f"Endpoint '{requested}' not found in graph."
 
     phases.sort(key=lambda p: tracing_tools.PHASE_ORDER.index(p["phase"]) if p.get("phase") in tracing_tools.PHASE_ORDER else 99)
 
-    lines = [f"Flow for {endpoint}", f"Phases ({len(phases)}):"]
+    header = f"Flow for {endpoint}"
+    if endpoint != requested:
+        header += f"  (matched '{requested}' via nginx regex location)"
+    lines = [header, f"Phases ({len(phases)}):"]
     middleware_collapsed: list[str] = []
 
     for p in phases:
@@ -150,16 +157,16 @@ def explain_flow(engine: QueryEngine, endpoint: str, escape_hatch: bool = False)
 
         calls = engine.query("""
             MATCH path = (fn:Function {file: $file})-[:CALLS*1..3]->(called:Function)
-            RETURN [n in nodes(path) | n.name] AS chain,
-                   [n in nodes(path) | n.file] AS files
+            RETURN nodes(path) AS ns
             LIMIT 10
         """, file=fpath)
 
         for c in calls[:5]:
-            chain = list(zip(c["chain"], c["files"]))
+            names, files = extract_chain(c["ns"])
+            chain = list(zip(names, files))
             non_mw = [n for n, f in chain if not _is_middleware(engine, f, n)]
             if not non_mw:
-                middleware_collapsed.append(" → ".join(c["chain"]))
+                middleware_collapsed.append(" → ".join(n for n in names if n))
                 continue
             chain_items = []
             for name, file in chain:
