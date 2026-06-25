@@ -111,6 +111,23 @@ RE_UPSTREAM = re.compile(r'upstream\s+(\w+)\s*\{')
 RE_PROXY_PASS = re.compile(r'proxy_pass\s+(\S+?)\s*;')
 RE_UPSTREAM_SERVER = re.compile(r'server\s+(\S+)')
 
+# require("module.path") / require 'module.path' / require("m")  (paren optional)
+RE_REQUIRE = re.compile(r"""require\s*\(?\s*["']([\w./-]+)["']""")
+
+
+def extract_requires(lua_code: str | None) -> list[str]:
+    """Return the module strings required inside a Lua snippet, de-duplicated,
+    in first-seen order. Used to link inline nginx Lua blocks into the call graph.
+    """
+    if not lua_code:
+        return []
+    seen: list[str] = []
+    for m in RE_REQUIRE.finditer(lua_code):
+        mod = m.group(1)
+        if mod not in seen:
+            seen.append(mod)
+    return seen
+
 
 def _extract_block(content: str, start_pos: int) -> tuple[str, int]:
     """Extract content between matched braces starting at { position.
