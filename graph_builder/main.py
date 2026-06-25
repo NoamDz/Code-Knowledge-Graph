@@ -386,6 +386,19 @@ def build(ctx):
             click.echo(f"  Ingested {len(nginx_config.locations)} nginx locations, "
                        f"{proxy_count} proxy_pass, {len(nginx_config.upstreams)} upstreams")
 
+            # Link inline content_by_lua_block require() targets into the call
+            # graph so explain_flow can traverse past [content] (inline).
+            from .parsers.nginx_parser import resolve_inline_phase_handles
+            lua_resolver = resolvers.get("lua")
+            if lua_resolver:
+                inline_edges = resolve_inline_phase_handles(
+                    nginx_config.locations, lua_resolver,
+                )
+                for loc_path, phase_name, resolved_file in inline_edges:
+                    writer.upsert_phase_handles_file(loc_path, phase_name, resolved_file)
+                if inline_edges:
+                    click.echo(f"  Inline-block HANDLES edges: {len(inline_edges)}")
+
         # Ingest all files
         for file_path, ast in all_asts.items():
             writer.ingest_file_ast(ast, resolved_imports.get(file_path, {}))

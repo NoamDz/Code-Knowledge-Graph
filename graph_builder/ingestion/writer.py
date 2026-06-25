@@ -328,6 +328,19 @@ class GraphWriter:
                 MERGE (p)-[:HANDLES]->(f)
             """, phase=phase, location=location, lua_file=lua_file)
 
+    def upsert_phase_handles_file(self, location: str, phase: str, file_path: str):
+        """Link an nginx phase to a File it dispatches into (inline require target).
+
+        Mirrors the HANDLES edge that upsert_nginx_endpoint creates for *_by_lua_file
+        directives, but for require() targets found inside inline *_by_lua_block code.
+        Silently no-ops if the File node does not exist (MATCH fails).
+        """
+        self._run("""
+            MATCH (p:NginxPhase {phase_type: $phase, endpoint: $location})
+            MATCH (f:File {path: $file_path})
+            MERGE (p)-[:HANDLES]->(f)
+        """, phase=phase, location=location, file_path=file_path)
+
     def upsert_ctx_access(self, field_name: str, access_type: str,
                            function: str, file_path: str, line: int,
                            scope: str | None = None):
