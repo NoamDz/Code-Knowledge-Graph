@@ -129,6 +129,27 @@ def extract_requires(lua_code: str | None) -> list[str]:
     return seen
 
 
+def resolve_inline_phase_handles(locations, resolver) -> list[tuple[str, str, str]]:
+    """For every inline Lua phase, resolve its require() targets to files.
+
+    Returns (endpoint_path, phase, resolved_file) tuples to be turned into
+    (NginxPhase)-[:HANDLES]->(File) edges. `resolver` must expose
+    resolve(module_string) -> file path | None (LuaResolver does).
+    """
+    edges: list[tuple[str, str, str]] = []
+    for loc in locations:
+        for phase in loc.phases:
+            if not (phase.is_inline and phase.inline_code):
+                continue
+            for module_string in extract_requires(phase.inline_code):
+                resolved = resolver.resolve(module_string)
+                if resolved:
+                    edge = (loc.path, phase.phase, resolved)
+                    if edge not in edges:
+                        edges.append(edge)
+    return edges
+
+
 def _extract_block(content: str, start_pos: int) -> tuple[str, int]:
     """Extract content between matched braces starting at { position.
 
