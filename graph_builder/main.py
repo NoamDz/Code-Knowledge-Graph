@@ -399,6 +399,18 @@ def build(ctx):
                 if inline_edges:
                     click.echo(f"  Inline-block HANDLES edges: {len(inline_edges)}")
 
+            # B3: link *_by_lua_file phases to their real File nodes. nginx
+            # declares deploy paths (/data/kashmir/pinpoint/...) but the graph
+            # indexes build paths (.../src/...); resolve by longest suffix.
+            from .parsers.nginx_parser import resolve_file_phase_handles
+            file_edges = resolve_file_phase_handles(
+                nginx_config.locations, all_asts.keys(),
+            )
+            for loc_path, phase_name, resolved_file in file_edges:
+                writer.upsert_phase_handles_file(loc_path, phase_name, resolved_file)
+            if file_edges:
+                click.echo(f"  File-phase HANDLES edges: {len(file_edges)}")
+
         # Ingest all files
         for file_path, ast in all_asts.items():
             writer.ingest_file_ast(ast, resolved_imports.get(file_path, {}))
