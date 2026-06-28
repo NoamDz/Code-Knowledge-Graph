@@ -356,7 +356,18 @@ def build(ctx):
         with writer.driver.session() as session:
             create_indexes(session)
 
-        # Ingest nginx endpoints
+        # Ingest all files FIRST and flush, so the File nodes exist before any
+        # linking step matches against them. nginx HANDLES edges (below) and the
+        # Go/socket/structure linkers (further down) all MATCH (f:File {...}); on
+        # a fresh `build` graph those matches silently no-op if files aren't yet
+        # flushed. (`update` re-ingests into an already-populated graph, so it
+        # never hit this — but `build` must work from empty.)
+        for file_path, ast in all_asts.items():
+            writer.ingest_file_ast(ast, resolved_imports.get(file_path, {}))
+
+        writer.flush_all()
+
+        # Ingest nginx endpoints (after the File flush above so HANDLES matches).
         if config.nginx_conf and Path(config.nginx_conf).exists():
             nginx_config = parse_nginx_conf_recursive(
                 config.nginx_conf, config.nginx_base_path,
@@ -420,12 +431,6 @@ def build(ctx):
                     delegation_count += 1
             if delegation_count:
                 click.echo(f"  Endpoint delegations (try_files): {delegation_count}")
-
-        # Ingest all files
-        for file_path, ast in all_asts.items():
-            writer.ingest_file_ast(ast, resolved_imports.get(file_path, {}))
-
-        writer.flush_all()
 
         # Go same-package linking
         go_resolver = resolvers.get("go")
