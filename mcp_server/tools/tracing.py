@@ -99,6 +99,16 @@ def trace_endpoint(engine: QueryEngine, endpoint_path: str, max_depth: int = 6) 
                 all_lines.append(f"{indent}    {r['from_function']} --[{r['redirect_type']}]--> {r['target_path']}")
                 _trace_single(r["target_path"], depth + 1)
 
+        delegations = engine.query("""
+            MATCH (e:Endpoint {path: $endpoint})-[:DELEGATES_TO]->(t:Endpoint)
+            RETURN DISTINCT t.path AS target
+        """, endpoint=ep_path)
+        if delegations:
+            all_lines.append(f"{indent}  Delegates to (try_files):")
+            for d in delegations:
+                all_lines.append(f"{indent}    --> {d['target']}")
+                _trace_single(d["target"], depth + 1)
+
         # Follow HTTP_CALLS edges
         http_calls = engine.query("""
             MATCH (e:Endpoint {path: $endpoint})-[:HAS_PHASE]->(:NginxPhase)-[:HANDLES]->(f:File)
