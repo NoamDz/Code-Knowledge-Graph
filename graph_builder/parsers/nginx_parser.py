@@ -115,6 +115,17 @@ RE_UPSTREAM_SERVER = re.compile(r'server\s+(\S+)')
 RE_REQUIRE = re.compile(r"""require\s*\(?\s*["']([\w./-]+)["']""")
 
 
+def _clean_lua_path(raw: str) -> str:
+    """Normalize a captured *_by_lua_file path: drop a trailing ';' and any
+    surrounding matched quotes. nginx allows `rewrite_by_lua_file "/p";` and the
+    quotes would otherwise be stored verbatim, breaking the HANDLES File match.
+    """
+    s = raw.strip().rstrip(";").strip()
+    if len(s) >= 2 and s[0] in "\"'" and s[-1] == s[0]:
+        s = s[1:-1]
+    return s
+
+
 def extract_requires(lua_code: str | None) -> list[str]:
     """Return the module strings required inside a Lua snippet, de-duplicated,
     in first-seen order. Used to link inline nginx Lua blocks into the call graph.
@@ -389,7 +400,7 @@ def _parse_locations_and_phases(content: str, config: NginxConfig):
 
         elif match_type == 'file':
             directive = match.group(1)
-            lua_file = match.group(2).rstrip(';')
+            lua_file = _clean_lua_path(match.group(2))
             if directive not in PHASE_MAP:
                 pos = match.end()
                 continue
@@ -421,7 +432,7 @@ def _extract_phases_from_block(block_content: str, phases: list, base_line: int,
             directive=directive,
             phase=PHASE_MAP[directive],
             is_inline=False,
-            lua_file=m.group(2).rstrip(';'),
+            lua_file=_clean_lua_path(m.group(2)),
             inline_code=None,
             line=base_line + block_content[:m.start()].count('\n'),
         ))
