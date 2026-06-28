@@ -411,6 +411,16 @@ def build(ctx):
             if file_edges:
                 click.echo(f"  File-phase HANDLES edges: {len(file_edges)}")
 
+            # B1: link fallback locations (try_files -> @named) so explain_flow
+            # can follow the delegation chain (e.g. / -> @router -> main.lua).
+            delegation_count = 0
+            for loc in nginx_config.locations:
+                if loc.try_files_target:
+                    writer.upsert_endpoint_delegation(loc.path, loc.try_files_target)
+                    delegation_count += 1
+            if delegation_count:
+                click.echo(f"  Endpoint delegations (try_files): {delegation_count}")
+
         # Ingest all files
         for file_path, ast in all_asts.items():
             writer.ingest_file_ast(ast, resolved_imports.get(file_path, {}))
