@@ -53,3 +53,28 @@ def test_ambiguous_basename_is_skipped():
     loc = NginxLocation(path="/a", modifier=None, line=1, phases=[phase])
     # Two indexed files share the basename and tie on suffix length → no match.
     assert resolve_file_phase_handles([loc], ["/r/one/x.lua", "/r/two/x.lua"]) == []
+
+
+def test_extract_try_files_named_location():
+    assert extract_try_files_target("try_files $uri @router;") == "@router"
+    assert extract_try_files_target("  try_files $uri $uri/ @app ;") == "@app"
+
+
+def test_extract_try_files_ignores_non_named_and_absent():
+    assert extract_try_files_target("try_files $uri /index.html;") is None
+    assert extract_try_files_target("root /data/x; proxy_pass http://up;") is None
+
+
+def test_location_block_records_try_files_target():
+    import tempfile, os
+    from graph_builder.parsers.nginx_parser import parse_nginx_conf
+    conf = 'location / {\n  try_files $uri @router;\n}\n'
+    with tempfile.NamedTemporaryFile("w", suffix=".conf", delete=False) as f:
+        f.write(conf)
+        path = f.name
+    try:
+        cfg = parse_nginx_conf(path)
+    finally:
+        os.unlink(path)
+    by_path = {loc.path: loc for loc in cfg.locations}
+    assert by_path["/"].try_files_target == "@router"

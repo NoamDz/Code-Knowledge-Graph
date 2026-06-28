@@ -45,6 +45,7 @@ class NginxLocation:
     line: int
     phases: list[NginxLuaPhase] = field(default_factory=list)
     proxy_pass: NginxProxyPass | None = None
+    try_files_target: str | None = None  # @named-location fallback of try_files
 
 
 @dataclass
@@ -110,6 +111,7 @@ RE_INCLUDE = re.compile(r'include\s+(\S+)\s*;')
 RE_UPSTREAM = re.compile(r'upstream\s+(\w+)\s*\{')
 RE_PROXY_PASS = re.compile(r'proxy_pass\s+(\S+?)\s*;')
 RE_UPSTREAM_SERVER = re.compile(r'server\s+(\S+)')
+RE_TRY_FILES = re.compile(r'try_files\s+([^;]+);')
 
 # require("module.path") / require 'module.path' / require("m")  (paren optional)
 RE_REQUIRE = re.compile(r"""require\s*\(?\s*["']([\w./-]+)["']""")
@@ -216,6 +218,19 @@ def resolve_file_phase_handles(locations, file_paths) -> list[tuple[str, str, st
                 if edge not in edges:
                     edges.append(edge)
     return edges
+
+
+def extract_try_files_target(block_content: str) -> str | None:
+    """Return the fallback target of a try_files directive when it is a named
+    location (@name). Other fallbacks (plain URIs, =code) are out of scope.
+    """
+    m = RE_TRY_FILES.search(block_content)
+    if not m:
+        return None
+    args = m.group(1).split()
+    if args and args[-1].startswith("@"):
+        return args[-1]
+    return None
 
 
 def _extract_block(content: str, start_pos: int) -> tuple[str, int]:
@@ -424,6 +439,8 @@ def _parse_locations_and_phases(content: str, config: NginxConfig):
                     target=pp_match.group(1),
                     line=line + block_content[:pp_match.start()].count('\n'),
                 )
+
+            loc.try_files_target = extract_try_files_target(block_content)
 
             config.locations.append(loc)
             pos = end_pos
