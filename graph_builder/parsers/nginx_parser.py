@@ -161,6 +161,63 @@ def resolve_inline_phase_handles(locations, resolver) -> list[tuple[str, str, st
     return edges
 
 
+def _file_index_by_basename(file_paths) -> dict[str, list[str]]:
+    """Group known File-node paths by basename for fast suffix resolution."""
+    index: dict[str, list[str]] = {}
+    for fp in file_paths:
+        base = fp.replace("\\", "/").rsplit("/", 1)[-1]
+        index.setdefault(base, []).append(fp)
+    return index
+
+
+def _match_file_by_suffix(lua_file: str, index: dict[str, list[str]]) -> str | None:
+    """Resolve a declared nginx lua_file path to a known File-node path by the
+    longest matching trailing path segments. Returns None if there is no match
+    or the best match is ambiguous (a tie on suffix length).
+    """
+    norm = lua_file.replace("\\", "/")
+    base = norm.rsplit("/", 1)[-1]
+    candidates = index.get(base, [])
+    if not candidates:
+        return None
+    if len(candidates) == 1:
+        return candidates[0]
+    lua_parts = norm.split("/")
+    best: str | None = None
+    best_len = -1
+    tie = False
+    for fp in candidates:
+        fp_parts = fp.replace("\\", "/").split("/")
+        n = 0
+        while (n < len(lua_parts) and n < len(fp_parts)
+               and lua_parts[-1 - n] == fp_parts[-1 - n]):
+            n += 1
+        if n > best_len:
+            best, best_len, tie = fp, n, False
+        elif n == best_len:
+            tie = True
+    return None if tie else best
+
+
+def resolve_file_phase_handles(locations, file_paths) -> list[tuple[str, str, str]]:
+    """For every *_by_lua_file phase, resolve its declared path to a real File
+    node path (nginx deploy path differs from the indexed build path). Returns
+    (endpoint_path, phase, resolved_file) tuples for HANDLES edges, deduped.
+    """
+    index = _file_index_by_basename(file_paths)
+    edges: list[tuple[str, str, str]] = []
+    for loc in locations:
+        for phase in loc.phases:
+            if phase.is_inline or not phase.lua_file:
+                continue
+            resolved = _match_file_by_suffix(phase.lua_file, index)
+            if resolved:
+                edge = (loc.path, phase.phase, resolved)
+                if edge not in edges:
+                    edges.append(edge)
+    return edges
+
+
 def _extract_block(content: str, start_pos: int) -> tuple[str, int]:
     """Extract content between matched braces starting at { position.
 
