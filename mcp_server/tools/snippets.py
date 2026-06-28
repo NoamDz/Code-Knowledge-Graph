@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from ..query_engine import QueryEngine
@@ -15,6 +16,41 @@ _LANG_HINTS = {
     "javascript": "javascript",
     "go": "go",
 }
+
+
+def _resolve_source_path(file_path: str, mount_root: str | None = None) -> Path | None:
+    """Map a graph-stored file path to an actual file on disk.
+
+    The graph records absolute build-time paths (e.g.
+    ``/Users/dev/pinpoint/src/x.lua``), but the MCP server usually runs in a
+    container where the repo is mounted elsewhere — docker-compose mounts it at
+    ``/repo``. If the literal path exists, use it (host/dev runs). Otherwise
+    search for the longest path *suffix* that exists under ``mount_root``,
+    mirroring how the nginx parser remaps container-absolute include paths.
+
+    Returns the resolved Path, or None if the file can't be found.
+    """
+    p = Path(file_path)
+    if p.exists():
+        return p
+
+    if mount_root is None:
+        mount_root = os.environ.get("CODE_GRAPH_REPO_MOUNT", "/repo")
+    root = Path(mount_root)
+    if not root.is_dir():
+        return None
+
+    parts = p.parts
+    if p.is_absolute() and parts:
+        parts = parts[1:]  # drop the leading anchor ('/' or a Windows drive)
+
+    # Longest suffix first (strip the fewest leading components) so the most
+    # specific match wins and we don't grab an unrelated same-basename file.
+    for i in range(len(parts)):
+        candidate = root.joinpath(*parts[i:])
+        if candidate.is_file():
+            return candidate
+    return None
 
 
 def get_code_snippet(engine: QueryEngine, name: str, context_lines: int = 0) -> str:
@@ -60,9 +96,10 @@ def get_code_snippet(engine: QueryEngine, name: str, context_lines: int = 0) -> 
             )
             continue
 
-        # Read the source file
-        source_path = Path(file_path)
-        if not source_path.exists():
+        # Read the source file. The graph stores absolute build-time paths;
+        # remap onto the container mount root if the literal path is absent.
+        source_path = _resolve_source_path(file_path)
+        if source_path is None:
             sections.append(
                 f"{node_type} '{node_name}' in {file_path} — file not found on disk"
             )
