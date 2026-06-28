@@ -110,6 +110,56 @@ def _is_middleware(engine: QueryEngine, file_path: str | None, func_name: str | 
 # explain_flow
 # ---------------------------------------------------------------------------
 
+def _phase_lines(engine: QueryEngine, endpoint_path: str, indent: str = ""):
+    """Render one endpoint's nginx phases and their static call chains.
+
+    Returns (lines, middleware_collapsed, phases). `phases` is returned so the
+    caller can tell 'endpoint missing' from 'endpoint present but phaseless'.
+    Uses the resolved HANDLES File (file_path) for the CALLS lookup — the
+    declared lua_file is a deploy path that won't match Function.file.
+    """
+    phases = engine.query("""
+        MATCH (e:Endpoint {path: $endpoint})-[:HAS_PHASE]->(p:NginxPhase)
+        OPTIONAL MATCH (p)-[:HANDLES]->(f:File)
+        RETURN p.phase_type AS phase, p.lua_file AS lua_file,
+               p.is_inline AS is_inline, f.path AS file_path
+    """, endpoint=endpoint_path)
+    phases.sort(key=lambda p: tracing_tools.PHASE_ORDER.index(p["phase"]) if p.get("phase") in tracing_tools.PHASE_ORDER else 99)
+
+    lines: list[str] = []
+    middleware_collapsed: list[str] = []
+    for p in phases:
+        phase = p["phase"]
+        graph_file = p.get("file_path")              # resolved File node (has Functions)
+        display_path = graph_file or p.get("lua_file")  # fall back to declared path
+        if display_path and _is_middleware(engine, display_path, None):
+            middleware_collapsed.append(f"[{phase}] {display_path}")
+            continue
+        lines.append(f"{indent}  [{phase}] {display_path or '(inline)'}")
+        if not graph_file:
+            continue
+        calls = engine.query("""
+            MATCH path = (fn:Function {file: $file})-[:CALLS*1..3]->(called:Function)
+            RETURN nodes(path) AS ns
+            LIMIT 10
+        """, file=graph_file)
+        for c in calls[:5]:
+            names, files = extract_chain(c["ns"])
+            chain = list(zip(names, files))
+            non_mw = [n for n, f in chain if not _is_middleware(engine, f, n)]
+            if not non_mw:
+                middleware_collapsed.append(" → ".join(n for n in names if n))
+                continue
+            chain_items = []
+            for name, file in chain:
+                if _is_middleware(engine, file, name):
+                    chain_items.append(f"<mw:{name}>")
+                else:
+                    chain_items.append(name)
+            lines.append(f"{indent}    {' → '.join(chain_items)}")
+    return lines, middleware_collapsed, phases
+
+
 def explain_flow(engine: QueryEngine, endpoint: str, escape_hatch: bool = False) -> str:
     """Phase chain + call graph + reroutes + HTTP calls for an HTTP endpoint.
 
@@ -126,73 +176,50 @@ def explain_flow(engine: QueryEngine, endpoint: str, escape_hatch: bool = False)
         cross = impact_tools.trace_cross_service_flow(engine, endpoint)
         return f"{raw}\n\n--- cross-service (raw) ---\n{cross}"
 
-    phases = engine.query("""
-        MATCH (e:Endpoint {path: $endpoint})-[:HAS_PHASE]->(p:NginxPhase)
-        OPTIONAL MATCH (p)-[:HANDLES]->(f:File)
-        RETURN p.phase_type AS phase, p.lua_file AS lua_file,
-               p.is_inline AS is_inline, f.path AS file_path
+    own_lines, middleware_collapsed, phases = _phase_lines(engine, endpoint)
+
+    delegations = engine.query("""
+        MATCH (e:Endpoint {path: $endpoint})-[:DELEGATES_TO]->(t:Endpoint)
+        RETURN DISTINCT t.path AS target
     """, endpoint=endpoint)
 
-    if not phases:
+    if not phases and not delegations:
         return f"Endpoint '{requested}' not found in graph."
-
-    phases.sort(key=lambda p: tracing_tools.PHASE_ORDER.index(p["phase"]) if p.get("phase") in tracing_tools.PHASE_ORDER else 99)
 
     header = f"Flow for {endpoint}"
     if endpoint != requested:
         header += f"  (matched '{requested}' via nginx regex location)"
     lines = [header, f"Phases ({len(phases)}):"]
-    middleware_collapsed: list[str] = []
+    lines += own_lines
 
-    for p in phases:
-        phase = p["phase"]
-        fpath = p.get("lua_file") or p.get("file_path")
-        if fpath and _is_middleware(engine, fpath, None):
-            middleware_collapsed.append(f"[{phase}] {fpath}")
-            continue
-        lines.append(f"  [{phase}] {fpath or '(inline)'}")
-
-        if not fpath:
-            continue
-
-        calls = engine.query("""
-            MATCH path = (fn:Function {file: $file})-[:CALLS*1..3]->(called:Function)
-            RETURN nodes(path) AS ns
-            LIMIT 10
-        """, file=fpath)
-
-        for c in calls[:5]:
-            names, files = extract_chain(c["ns"])
-            chain = list(zip(names, files))
-            non_mw = [n for n, f in chain if not _is_middleware(engine, f, n)]
-            if not non_mw:
-                middleware_collapsed.append(" → ".join(n for n in names if n))
-                continue
-            chain_items = []
-            for name, file in chain:
-                if _is_middleware(engine, file, name):
-                    chain_items.append(f"<mw:{name}>")
-                else:
-                    chain_items.append(name)
-            lines.append(f"    {' → '.join(chain_items)}")
+    analyzed = [endpoint]
+    for d in delegations:
+        target = d["target"]
+        analyzed.append(target)
+        lines.append(f"\n  → delegates to {target} (nginx try_files):")
+        d_lines, d_mw, _ = _phase_lines(engine, target, indent="  ")
+        lines += d_lines
+        middleware_collapsed += d_mw
 
     reroutes = engine.query("""
-        MATCH (e:Endpoint {path: $endpoint})-[:HAS_PHASE]->(:NginxPhase)-[:HANDLES]->(f:File)
+        MATCH (e:Endpoint)-[:HAS_PHASE]->(:NginxPhase)-[:HANDLES]->(f:File)
+        WHERE e.path IN $endpoints
         MATCH (fn:Function {file: f.path})-[r:REROUTES_TO]->(target:Endpoint)
         RETURN DISTINCT target.path AS target_path, r.redirect_type AS redirect_type,
                fn.name AS from_function
-    """, endpoint=endpoint)
+    """, endpoints=analyzed)
     if reroutes:
         lines.append("\nInternal reroutes:")
         for r in reroutes:
             lines.append(f"  {r['from_function']} --[{r['redirect_type']}]--> {r['target_path']}")
 
     http_calls = engine.query("""
-        MATCH (e:Endpoint {path: $endpoint})-[:HAS_PHASE]->(:NginxPhase)-[:HANDLES]->(f:File)
+        MATCH (e:Endpoint)-[:HAS_PHASE]->(:NginxPhase)-[:HANDLES]->(f:File)
+        WHERE e.path IN $endpoints
         MATCH (fn:Function {file: f.path})-[r:HTTP_CALLS]->(target:Endpoint)
         RETURN DISTINCT target.path AS target_path, r.method AS method,
                fn.name AS from_function
-    """, endpoint=endpoint)
+    """, endpoints=analyzed)
     if http_calls:
         lines.append("\nCross-service HTTP calls:")
         for h in http_calls:
