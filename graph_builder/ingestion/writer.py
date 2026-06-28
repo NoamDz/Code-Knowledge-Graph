@@ -341,6 +341,19 @@ class GraphWriter:
             MERGE (p)-[:HANDLES]->(f)
         """, phase=phase, location=location, file_path=file_path)
 
+    def upsert_endpoint_delegation(self, source_path: str, target_path: str):
+        """Link an endpoint to a named location it delegates to via try_files.
+
+        MERGEs the source Endpoint so a phaseless fallback (`location /` with only
+        `try_files $uri @router`) becomes a real node, then connects it to the
+        named location (`@router`) that actually holds the Lua phase.
+        """
+        self._run("""
+            MERGE (s:Endpoint {path: $source})
+            MERGE (t:Endpoint {path: $target})
+            MERGE (s)-[:DELEGATES_TO]->(t)
+        """, source=source_path, target=target_path)
+
     def upsert_ctx_access(self, field_name: str, access_type: str,
                            function: str, file_path: str, line: int,
                            scope: str | None = None):

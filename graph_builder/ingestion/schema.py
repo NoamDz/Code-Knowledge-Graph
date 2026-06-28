@@ -70,6 +70,7 @@ EDGE_TYPES = {
     "CTX_READS": ["function", "line", "scope"],
     "USES_SHARED": ["operation", "function", "line"],
     "REROUTES_TO": ["redirect_type", "line"],
+    "DELEGATES_TO": [],
     "REDIS_READS": ["operation", "line"],
     "REDIS_WRITES": ["operation", "line"],
     "HTTP_CALLS": ["method", "line"],
