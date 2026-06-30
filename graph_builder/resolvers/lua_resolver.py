@@ -21,9 +21,11 @@ from pathlib import Path
 class LuaResolver:
     """Resolves Lua require() strings to file paths."""
 
-    def __init__(self, package_paths: list[str], repo_root: str):
+    def __init__(self, package_paths: list[str], repo_root: str,
+                 source_roots: tuple[str, ...] = ("src",)):
         self.repo_root = Path(repo_root)
         self.package_paths = package_paths
+        self.source_roots = tuple(source_roots)
         self.module_index: dict[str, str] = {}
         self._build_index()
         self.file_to_module: dict[str, str] = {}
@@ -81,6 +83,37 @@ class LuaResolver:
         # Convert path separators to dots
         module_name = captured.replace("/", ".").replace("\\", ".")
         return module_name
+
+    def module_name_for_file(self, file_path: str) -> str | None:
+        """Derive the require_version dotted module name for a Lua file.
+
+        Inverse of require_version path mapping: drop the leading source-root
+        segment (e.g. "src"), drop "/init.lua" or ".lua", join with dots.
+            <repo>/src/ato/collectors/ipp/init.lua -> "ato.collectors.ipp"
+            <repo>/src/common/base/lua/store.lua   -> "common.base.lua.store"
+        """
+        parts = list(Path(file_path).parts)
+        # Take everything after the LAST leading-style source-root segment.
+        cut = None
+        for i, p in enumerate(parts):
+            if p in self.source_roots:
+                cut = i
+        if cut is not None:
+            parts = parts[cut + 1:]
+        else:
+            try:
+                parts = list(Path(file_path).relative_to(self.repo_root).parts)
+            except ValueError:
+                pass
+        if not parts:
+            return None
+        last = parts[-1]
+        if last == "init.lua":
+            parts = parts[:-1]
+        elif last.endswith(".lua"):
+            parts[-1] = last[:-4]
+        parts = [p for p in parts if p]
+        return ".".join(parts) if parts else None
 
     def resolve(self, module_string: str, from_file: str | None = None) -> str | None:
         """Resolve a require() string to a file path.

@@ -102,7 +102,10 @@ def _build_resolvers(config: Config) -> dict:
     if package_paths:
         click.echo(f"  Lua package paths: {len(package_paths)} templates")
 
-    resolvers["lua"] = LuaResolver(package_paths, config.repo_root)
+    resolvers["lua"] = LuaResolver(
+        package_paths, config.repo_root,
+        source_roots=tuple(config.lua_source_roots),
+    )
 
     # Python resolver
     from .resolvers.python_resolver import PythonResolver
@@ -121,6 +124,31 @@ def _build_resolvers(config: Config) -> dict:
     resolvers["ruby"] = RubyResolver(config.repo_root)
 
     return resolvers
+
+
+def _assign_lua_module_names(all_asts: dict[str, FileAST], lua_resolver) -> int:
+    """Set ast.module_name for every Lua file and (re)generate qualified names.
+
+    This must run before CallResolver — its symbol table early-continues on a
+    falsy module_name (call_resolver.py), and dynamic_prefix_resolver indexes
+    modules by ast.module_name.
+    """
+    if not lua_resolver or not hasattr(lua_resolver, "module_name_for_file"):
+        return 0
+    assigned = 0
+    for ast in all_asts.values():
+        if ast.language != "lua" or ast.module_name:
+            continue
+        name = lua_resolver.module_name_for_file(ast.file_path)
+        if not name:
+            continue
+        ast.module_name = name
+        assigned += 1
+        for func in ast.functions:
+            if not func.qualified_name:
+                func_base = func.name.split(".")[-1].split(":")[-1]
+                func.qualified_name = f"{name}.{func_base}"
+    return assigned
 
 
 @click.group()
@@ -151,6 +179,12 @@ def build(ctx):
 
     # Step 2: Build resolvers
     resolvers = _build_resolvers(config)
+
+    # Step 2b: Assign Lua module names (foundation for symbol table + registry
+    # expansion). Without this, cross-file Lua resolution silently degrades.
+    lua_assigned = _assign_lua_module_names(all_asts, resolvers.get("lua"))
+    if lua_assigned:
+        click.echo(f"  Lua module names assigned: {lua_assigned}")
 
     # Step 3: Resolve imports
     click.echo("Resolving cross-file imports...")

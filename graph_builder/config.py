@@ -47,6 +47,9 @@ class Config:
         "_M", "m", "M",
     ])
     lua_package_paths: list[str] = field(default_factory=list)
+    # Path segment(s) that act as the Lua require_version root. A file at
+    # <repo>/src/ato/collectors/ipp/init.lua resolves to module "ato.collectors.ipp".
+    lua_source_roots: list[str] = field(default_factory=lambda: ["src"])
 
     # Path prefix for resolving nginx include directives.
     # In containers, nginx includes use absolute paths like /data/app/nginx/conf.d/*.conf
@@ -84,6 +87,8 @@ class Config:
             config.lua_module_table_names = raw["lua_module_table_names"]
         if "lua_package_paths" in raw:
             config.lua_package_paths = raw["lua_package_paths"]
+        if "lua_source_roots" in raw:
+            config.lua_source_roots = list(raw["lua_source_roots"])
         if "nginx_base_path" in raw:
             config.nginx_base_path = raw["nginx_base_path"]
         if "middleware_files" in raw:
