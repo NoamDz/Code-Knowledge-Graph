@@ -158,6 +158,8 @@ def _extract_requires(root, source: bytes, ast: FileAST) -> dict[str, str]:
         # Dynamic require
         if first_arg.type != "string":
             static_prefix = _extract_concat_prefix(first_arg, source)
+            if static_prefix is None:
+                static_prefix = _extract_format_prefix(first_arg, source)
             ast.imports.append(ImportRef(
                 module_string=_text(first_arg, source),
                 line=first_arg.start_point[0] + 1,
@@ -219,6 +221,34 @@ def _extract_concat_prefix(node, source: bytes) -> str | None:
         if op and _text(op, source) == ".." and left and left.type == "string":
             return _get_string_value(left, source)
     return None
+
+
+def _extract_format_prefix(node, source: bytes) -> str | None:
+    """Extract a static prefix from string.format("ato.collectors.%s", ...).
+
+    Returns the literal text before the first format placeholder, with any
+    trailing '.' stripped: format("ato.collectors.%s", x) -> "ato.collectors".
+    """
+    if node.type != "function_call":
+        return None
+    name_node = node.child_by_field_name("name")
+    if not name_node:
+        return None
+    fname = _text(name_node, source)
+    if fname not in ("format", "string.format"):
+        return None
+    args = _first_child_of_type(node, "arguments")
+    if not args or args.named_child_count == 0:
+        return None
+    first = args.named_children[0]
+    if first.type != "string":
+        return None
+    fmt = _get_string_value(first, source)
+    # Cut at the first placeholder ('%s', '%d', ...).
+    idx = fmt.find("%")
+    literal = fmt[:idx] if idx != -1 else fmt
+    literal = literal.rstrip(".")
+    return literal or None
 
 
 # ---------------------------------------------------------------------------
