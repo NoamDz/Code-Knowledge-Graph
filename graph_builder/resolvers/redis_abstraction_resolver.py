@@ -12,7 +12,55 @@ This makes Redis usage visible through abstraction layers:
 
 from __future__ import annotations
 
+import re
+
 from graph_builder.parsers.base import FileAST, RedisKeyAccess
+
+
+# Cache of file_path -> source lines, to avoid re-reading per call.
+_SOURCE_CACHE: dict[str, list[str]] = {}
+
+
+def _source_line(file_path: str, line: int) -> str:
+    lines = _SOURCE_CACHE.get(file_path)
+    if lines is None:
+        try:
+            with open(file_path, "r", encoding="utf-8", errors="replace") as f:
+                lines = f.readlines()
+        except OSError:
+            lines = []
+        _SOURCE_CACHE[file_path] = lines
+    return lines[line - 1] if 0 < line <= len(lines) else ""
+
+
+def _extract_first_arg_key(file_path: str, line: int, method: str) -> str | None:
+    """Recover the first argument to `:<method>(` on the given source line.
+
+    Captures a string literal ("session_info") or a dotted constant
+    (DeviceIdAssessor.assess_key) as raw text. Returns None if not found.
+    """
+    src = _source_line(file_path, line)
+    if not src:
+        return None
+    # String literal first arg.
+    m = re.search(rf'[:.]{re.escape(method)}\s*\(\s*["\']([^"\']+)["\']', src)
+    if m:
+        return m.group(1)
+    # Dotted-constant / identifier first arg (best-effort).
+    m = re.search(rf'[:.]{re.escape(method)}\s*\(\s*([A-Za-z_][\w.]*)', src)
+    if m:
+        return m.group(1)
+    return None
+
+
+def _extract_dirty_component(file_path: str, line: int, method: str) -> str | None:
+    """Recover the 2nd arg (component) of set_dirty_flag(flag, component)."""
+    src = _source_line(file_path, line)
+    if not src:
+        return None
+    m = re.search(
+        rf'[:.]{re.escape(method)}\s*\(\s*[^,]+,\s*["\']([^"\']+)["\']', src)
+    return m.group(1) if m else None
 
 
 # Store methods classified as read or write.
@@ -39,6 +87,10 @@ _STORE_VECTOR_READ = {
 _STORE_VECTOR_WRITE = {
     "set", "set_sparse_safe", "setall", "incr",
 }
+
+# Dirty-flag methods on the Store object. Coupling key: dirty:<component>:<flag>.
+_STORE_DIRTY_WRITE = {"set_dirty_flag"}
+_STORE_DIRTY_READ = {"get_dirty_flags", "reset_flags"}
 
 # Hardcoded abstraction defaults for known Redis wrapper modules.
 # Keys are module strings (as they appear in require() calls).
@@ -118,6 +170,36 @@ def resolve_redis_abstractions(all_asts: dict[str, FileAST],
                 parts = callee.split(sep, 1)
                 table_name, method_name = parts[0], parts[1]
 
+                # Dirty-flag methods are highly specific and often called on an
+                # untyped `store` parameter that never resolves to a module.
+                # Gate on the (rare) method name plus a plausible-store receiver:
+                # a receiver bound to a known store module OR literally named
+                # store / store_object / self. Key: dirty:<component>:<flag>.
+                receiver_mod = call.resolved_module or binding_to_module.get(table_name)
+                receiver_is_store = (
+                    (receiver_mod in _ALL_STORE_MODULES)
+                    or table_name.lower() in {"store", "store_object", "self"}
+                )
+                if receiver_is_store and method_name in _STORE_DIRTY_WRITE:
+                    flag = _extract_first_arg_key(file_path, call.line, method_name)
+                    comp = _extract_dirty_component(file_path, call.line, method_name)
+                    ast.redis_accesses.append(RedisKeyAccess(
+                        key_name=f"dirty:{comp or '<any>'}:{flag or '<dynamic>'}",
+                        operation=method_name, access_type="write",
+                        function=call.caller_function, line=call.line,
+                    ))
+                    already_matched.add(call.line)
+                    break
+                if receiver_is_store and method_name in _STORE_DIRTY_READ:
+                    comp = _extract_first_arg_key(file_path, call.line, method_name)
+                    ast.redis_accesses.append(RedisKeyAccess(
+                        key_name=f"dirty:{comp or '<any>'}:<all>",
+                        operation=method_name, access_type="read",
+                        function=call.caller_function, line=call.line,
+                    ))
+                    already_matched.add(call.line)
+                    break
+
                 module_str = call.resolved_module or binding_to_module.get(table_name)
                 if not module_str or module_str not in abstractions:
                     continue
@@ -175,10 +257,16 @@ def resolve_redis_abstractions(all_asts: dict[str, FileAST],
                         # Check if next part is a factory method
                         remaining = chain_parts[i+1:]
                         if remaining and remaining[-1] in STORE_VECTOR_FACTORIES.get(mod_str, set()):
-                            # This is a vector operation
+                            # This is a vector operation. Namespace the key by the
+                            # factory prefix (assess_vector -> assess, collect_vector
+                            # -> collect) and recover the real key from the source line.
+                            factory = remaining[-1]                  # e.g. "assess_vector"
+                            prefix = factory.replace("_vector", "")  # "assess" / "collect"
+                            key = _extract_first_arg_key(file_path, call.line, method_name)
+                            full_key = f"{prefix}:{key}" if key else f"{prefix}:<dynamic>"
                             if method_name in _STORE_VECTOR_READ:
                                 ast.redis_accesses.append(RedisKeyAccess(
-                                    key_name=f"<via store_vector>",
+                                    key_name=full_key,
                                     operation=method_name, access_type="read",
                                     function=call.caller_function, line=call.line,
                                 ))
@@ -186,7 +274,7 @@ def resolve_redis_abstractions(all_asts: dict[str, FileAST],
                                 break
                             elif method_name in _STORE_VECTOR_WRITE:
                                 ast.redis_accesses.append(RedisKeyAccess(
-                                    key_name=f"<via store_vector>",
+                                    key_name=full_key,
                                     operation=method_name, access_type="write",
                                     function=call.caller_function, line=call.line,
                                 ))
