@@ -322,6 +322,13 @@ def build(ctx):
         resolved_count = sum(1 for m in missions if m["target_file"])
         click.echo(f"  Missions: {total_dispatches} dispatches, {resolved_count} resolved to files")
 
+    # Step 4e2: Pipeline edges (dirty-flag -> assessor). Depends on
+    # redis abstraction (dirty:* keys) + module constants (M.name).
+    from .resolvers.pipeline_resolver import resolve_pipeline_edges
+    pipeline_edges = resolve_pipeline_edges(all_asts)
+    if pipeline_edges:
+        click.echo(f"  Pipeline (dirty-flag) edges: {len(pipeline_edges)}")
+
     # Step 4f: Dynamic prefix expansion
     from .resolvers.dynamic_prefix_resolver import resolve_dynamic_prefixes
     dynamic_edges, dynamic_stats = resolve_dynamic_prefixes(all_asts)
@@ -499,6 +506,13 @@ def build(ctx):
                         m["source_file"], m["task_name"],
                         m["target_file"], m["line"],
                     )
+
+        # Ingest pipeline (dirty-flag -> assessor) edges
+        if pipeline_edges:
+            for e in pipeline_edges:
+                writer.upsert_signals_assessor(
+                    e["source_file"], e["target_file"], e["flag"], e["line"],
+                )
 
         # Ingest JS ERB render-chain edges
         if js_erb_edges:

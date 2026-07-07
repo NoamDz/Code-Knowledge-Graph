@@ -609,6 +609,15 @@ class GraphWriter:
                 MERGE (src)-[:DISPATCHES {task: $task, line: $line}]->(tgt)
             """, source=source_file, target=target_file, task=task_name, line=line)
 
+    def upsert_signals_assessor(self, source_file: str, target_file: str,
+                                flag: str, line: int):
+        """Create a SIGNALS_ASSESSOR edge (collector/handler -> assessor)."""
+        self._run("""
+            MERGE (src:File {path: $source})
+            MERGE (tgt:File {path: $target})
+            MERGE (src)-[:SIGNALS_ASSESSOR {flag: $flag, line: $line}]->(tgt)
+        """, source=source_file, target=target_file, flag=flag, line=line)
+
     def upsert_same_package(self, file_a: str, file_b: str, package_name: str):
         """Create a SAME_PACKAGE edge between two files in the same Go package."""
         self._run("""

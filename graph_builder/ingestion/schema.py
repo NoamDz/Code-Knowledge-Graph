@@ -76,6 +76,7 @@ EDGE_TYPES = {
     "HTTP_CALLS": ["method", "line"],
     "PROXIES_TO": ["upstream_name"],
     "DISPATCHES": ["task", "line"],
+    "SIGNALS_ASSESSOR": ["flag", "line"],
     "SOCKET_LISTENS": [],
     "SOCKET_CONNECTS": [],
     "WRITES_REDIS_PATTERN": [],
