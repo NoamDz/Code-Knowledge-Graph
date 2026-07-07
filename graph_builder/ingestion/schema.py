@@ -29,6 +29,7 @@ INDEX_STATEMENTS = [
     "CREATE INDEX ON :SharedDataStructure(name);",
     "CREATE INDEX ON :SharedConstant(name);",
     "CREATE INDEX ON :Channel(name);",
+    "CREATE INDEX ON :TriggerEvent(name);",
 ]
 
 # Node labels and their key properties
@@ -53,6 +54,7 @@ NODE_TYPES = {
     "SharedDataStructure": ["name", "fields", "serialization_format"],
     "SharedConstant": ["name", "values"],
     "Channel": ["name", "element_type"],
+    "TriggerEvent": ["name"],
 }
 
 # Edge types and their properties
@@ -77,6 +79,7 @@ EDGE_TYPES = {
     "PROXIES_TO": ["upstream_name"],
     "DISPATCHES": ["task", "line"],
     "SIGNALS_ASSESSOR": ["flag", "line"],
+    "TRIGGERS": ["name", "line"],
     "SOCKET_LISTENS": [],
     "SOCKET_CONNECTS": [],
     "WRITES_REDIS_PATTERN": [],

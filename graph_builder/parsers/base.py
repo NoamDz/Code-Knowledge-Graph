@@ -140,6 +140,15 @@ class MissionDispatch:
 
 
 @dataclass
+class TriggerEvent:
+    """A triggers.bind/defer/fire call (string-keyed pub/sub)."""
+    name: str                     # trigger name string
+    role: str                     # "publisher" (defer/fire) or "subscriber" (bind)
+    caller_function: str = "<module>"
+    line: int = 0
+
+
+@dataclass
 class DatabaseAccess:
     """A database query call (MySQL, Cassandra)."""
     db_type: str                  # "mysql" or "cassandra"
@@ -208,6 +217,9 @@ class FileAST:
 
     # Mission dispatch (Lua missioner system)
     mission_dispatches: list[MissionDispatch] = field(default_factory=list)
+
+    # Trigger pub/sub events (triggers.bind/defer/fire)
+    trigger_events: list[TriggerEvent] = field(default_factory=list)
 
     # Database access (MySQL, Cassandra)
     db_accesses: list[DatabaseAccess] = field(default_factory=list)

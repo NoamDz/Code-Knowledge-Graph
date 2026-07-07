@@ -618,6 +618,16 @@ class GraphWriter:
             MERGE (src)-[:SIGNALS_ASSESSOR {flag: $flag, line: $line}]->(tgt)
         """, source=source_file, target=target_file, flag=flag, line=line)
 
+    def upsert_trigger_edge(self, source_file: str, target_file: str,
+                            name: str, line: int):
+        """Create a TRIGGERS edge (publisher -> subscriber), joined on trigger name."""
+        self._run("""
+            MERGE (src:File {path: $source})
+            MERGE (tgt:File {path: $target})
+            MERGE (t:TriggerEvent {name: $name})
+            MERGE (src)-[:TRIGGERS {name: $name, line: $line}]->(tgt)
+        """, source=source_file, target=target_file, name=name, line=line)
+
     def upsert_same_package(self, file_a: str, file_b: str, package_name: str):
         """Create a SAME_PACKAGE edge between two files in the same Go package."""
         self._run("""

@@ -329,6 +329,13 @@ def build(ctx):
     if pipeline_edges:
         click.echo(f"  Pipeline (dirty-flag) edges: {len(pipeline_edges)}")
 
+    # Step 4e3: Trigger pub/sub edges (bind <- defer/fire, joined on name).
+    from .resolvers.trigger_resolver import resolve_trigger_events, resolve_trigger_edges
+    resolve_trigger_events(all_asts)
+    trigger_edges = resolve_trigger_edges(all_asts)
+    if trigger_edges:
+        click.echo(f"  Trigger pub/sub edges: {len(trigger_edges)}")
+
     # Step 4f: Dynamic prefix expansion
     from .resolvers.dynamic_prefix_resolver import resolve_dynamic_prefixes
     dynamic_edges, dynamic_stats = resolve_dynamic_prefixes(all_asts)
@@ -512,6 +519,13 @@ def build(ctx):
             for e in pipeline_edges:
                 writer.upsert_signals_assessor(
                     e["source_file"], e["target_file"], e["flag"], e["line"],
+                )
+
+        # Ingest trigger pub/sub edges
+        if trigger_edges:
+            for e in trigger_edges:
+                writer.upsert_trigger_edge(
+                    e["source_file"], e["target_file"], e["name"], e["line"],
                 )
 
         # Ingest JS ERB render-chain edges
