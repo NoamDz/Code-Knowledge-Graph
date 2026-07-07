@@ -225,6 +225,9 @@ class FileAST:
     # e.g., [("format", "string.format"), ("encode", "cjson.encode")]
     local_aliases: list[tuple[str, str]] = field(default_factory=list)
 
+    # Module-level string constants: M.name = "device_id" -> {"name": "device_id"}
+    module_constants: dict[str, str] = field(default_factory=dict)
+
     # Diagnostics
     warnings: list[str] = field(default_factory=list)
 

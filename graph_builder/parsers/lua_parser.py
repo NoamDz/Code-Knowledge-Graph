@@ -1453,6 +1453,36 @@ def _extract_local_aliases(root, source: bytes, ast: FileAST):
 
 
 # ---------------------------------------------------------------------------
+# Module-level string constant extraction
+# ---------------------------------------------------------------------------
+
+def _extract_module_constants(root, source: bytes, ast: FileAST, module_info: ModuleInfo):
+    """Extract `<table_var>.field = "literal"` module-level string constants.
+
+    Captures assignments like M.name = "device_id" where M is the module table.
+    """
+    table_var = module_info.table_var_name
+    if not table_var:
+        return
+    for assign_node in _walk_all(root, "assignment_statement"):
+        if assign_node.parent and assign_node.parent.type == "variable_declaration":
+            continue
+        vl = _first_child_of_type(assign_node, "variable_list")
+        el = _first_child_of_type(assign_node, "expression_list")
+        if not (vl and el and vl.named_child_count > 0 and el.named_child_count > 0):
+            continue
+        name_node = vl.named_children[0]
+        value_node = el.named_children[0]
+        if name_node.type != "dot_index_expression" or value_node.type != "string":
+            continue
+        tbl = name_node.child_by_field_name("table")
+        field_node = name_node.child_by_field_name("field")
+        if not (tbl and field_node) or _text(tbl, source) != table_var:
+            continue
+        ast.module_constants[_text(field_node, source)] = _get_string_value(value_node, source)
+
+
+# ---------------------------------------------------------------------------
 # Main entry point
 # ---------------------------------------------------------------------------
 
@@ -1518,6 +1548,9 @@ def parse_lua_file(file_path: str) -> FileAST:
 
     # 15. Local alias extraction (for builtin classifier)
     _extract_local_aliases(root, source, ast)
+
+    # 15b. Module-level string constants (M.name / M.assess_key / M.id)
+    _extract_module_constants(root, source, ast, ast.module_info)
 
     # 16. Build qualified names for functions
     if ast.module_name:
