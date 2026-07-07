@@ -7,12 +7,29 @@ the dirty-flag write accesses (produced by redis_abstraction_resolver, keyed
 """
 from __future__ import annotations
 
+import logging
+
 from graph_builder.parsers.base import FileAST
+
+logger = logging.getLogger(__name__)
 
 
 def _build_assessor_index(all_asts: dict[str, FileAST]) -> dict[str, str]:
-    """name -> file_path for every module that declares M.name and lives under assessors/."""
+    """Build a name -> file_path index over every Lua module that declares an
+    M.name string constant (module_constants["name"]).
+
+    This is NOT limited to modules living under an assessors/ directory: any
+    Lua module that declares a matching M.name is accepted as a candidate.
+    Modules whose path contains "/assessors/" take precedence over modules
+    that don't -- that precedence is intentional (a real assessor should
+    always win over an incidental namesake) and is not warned about. Beyond
+    that, name uniqueness is assumed, not enforced: this is a deliberately
+    loose string join, and when two candidates of the *same* priority
+    (assessor-vs-assessor, or plain-vs-plain) declare the same name, only one
+    survives in the returned dict -- see the warning below for that case.
+    """
     index: dict[str, str] = {}
+    is_assessor: dict[str, bool] = {}
     for file_path, ast in all_asts.items():
         if ast.language != "lua":
             continue
@@ -20,11 +37,28 @@ def _build_assessor_index(all_asts: dict[str, FileAST]) -> dict[str, str]:
         if not name:
             continue
         norm = file_path.replace("\\", "/")
+        candidate_is_assessor = "/assessors/" in norm
         # Prefer assessor modules, but accept any module declaring a name.
-        if "/assessors/" in norm:
+        if candidate_is_assessor:
+            if name in index and is_assessor.get(name):
+                logger.warning(
+                    "Duplicate assessor name '%s': %s was already registered, "
+                    "now also declared by %s (last one wins)",
+                    name, index[name], file_path,
+                )
             index[name] = file_path
+            is_assessor[name] = True
         else:
-            index.setdefault(name, file_path)
+            if name in index:
+                if not is_assessor.get(name):
+                    logger.warning(
+                        "Duplicate module name '%s': %s was already registered, "
+                        "now also declared by %s (first one wins)",
+                        name, index[name], file_path,
+                    )
+                continue
+            index[name] = file_path
+            is_assessor[name] = False
     return index
 
 
