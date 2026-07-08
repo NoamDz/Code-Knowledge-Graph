@@ -80,6 +80,8 @@ EDGE_TYPES = {
     "DISPATCHES": ["task", "line"],
     "SIGNALS_ASSESSOR": ["flag", "line"],
     "TRIGGERS": ["name", "line"],
+    "PUBLISHES": ["line"],
+    "SUBSCRIBES": [],
     "SOCKET_LISTENS": [],
     "SOCKET_CONNECTS": [],
     "WRITES_REDIS_PATTERN": [],

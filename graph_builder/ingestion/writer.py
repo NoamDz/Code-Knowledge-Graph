@@ -621,11 +621,15 @@ class GraphWriter:
     def upsert_trigger_edge(self, source_file: str, target_file: str,
                             name: str, line: int):
         """Create a TRIGGERS edge (publisher -> subscriber), joined on trigger name."""
+        # PUBLISHES/SUBSCRIBES make the TriggerEvent node reachable; TRIGGERS
+        # stays as the direct pub->sub edge (denormalized for one-hop queries).
         self._run("""
             MERGE (src:File {path: $source})
             MERGE (tgt:File {path: $target})
             MERGE (t:TriggerEvent {name: $name})
             MERGE (src)-[:TRIGGERS {name: $name, line: $line}]->(tgt)
+            MERGE (src)-[:PUBLISHES {line: $line}]->(t)
+            MERGE (tgt)-[:SUBSCRIBES]->(t)
         """, source=source_file, target=target_file, name=name, line=line)
 
     def upsert_same_package(self, file_a: str, file_b: str, package_name: str):
