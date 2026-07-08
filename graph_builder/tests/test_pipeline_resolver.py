@@ -13,7 +13,7 @@ FIXTURES = Path(__file__).parent / "fixtures" / "lua"
 def test_dirty_flag_links_to_assessor():
     # producer fixture sets dirty flag "device_id"; assessor declares M.name="device_id"
     producer = parse_lua_file(str(FIXTURES / "assessor_keys.lua"))
-    assessor = parse_lua_file(str(FIXTURES / "assessor_device_id.lua"))
+    assessor = parse_lua_file(str(FIXTURES / "assessors/device_id_assessor.lua"))
     all_asts = {producer.file_path: producer, assessor.file_path: assessor}
     resolve_redis_abstractions(all_asts)  # populates dirty:* accesses
     edges = resolve_pipeline_edges(all_asts)

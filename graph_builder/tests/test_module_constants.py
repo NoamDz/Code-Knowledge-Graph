@@ -9,7 +9,7 @@ FIXTURES = Path(__file__).parent / "fixtures" / "lua"
 
 
 def test_module_constants_extracted():
-    ast = parse_lua_file(str(FIXTURES / "assessor_device_id.lua"))
+    ast = parse_lua_file(str(FIXTURES / "assessors/device_id_assessor.lua"))
     assert ast.module_constants.get("name") == "device_id"
     assert ast.module_constants.get("assess_key") == "device_id"
     assert ast.module_constants.get("id") == "13"
