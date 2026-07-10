@@ -831,17 +831,16 @@ class GraphWriter:
             MERGE (f)-[:DEFINES_CONSTANT {language: $lang}]->(c)
         """, file=file_path, const=constant_name, lang=language)
 
-    def clear_file(self, file_path: str):
-        """Remove all nodes and edges originating from a file."""
-        self._run("""
-            MATCH (f:File {path: $path})
-            OPTIONAL MATCH (f)-[:DEFINES]->(node)
-            DETACH DELETE node
-        """, path=file_path)
-        self._run("""
-            MATCH (f:File {path: $path})-[r]->()
-            DELETE r
-        """, path=file_path)
+    def clear_graph(self):
+        """Delete every node and edge.
+
+        Every other write here is a MERGE, which never deletes. A build that
+        did not start from an empty graph would leave behind the nodes and
+        edges of whatever the previous build saw — deleted functions, removed
+        require()s, files that no longer exist. Every node label in the schema
+        is derived from source on disk, so there is nothing else to preserve.
+        """
+        self._run("MATCH (n) DETACH DELETE n")
 
     @property
     def write_count(self) -> int:

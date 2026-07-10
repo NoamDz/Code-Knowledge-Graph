@@ -1,8 +1,7 @@
 """CLI entry point for the code knowledge graph.
 
 Commands:
-    code-graph build           Full graph build
-    code-graph update          Incremental update (changed files only)
+    code-graph build           Rebuild the graph from scratch
     code-graph validate        Run validation / coverage report
     code-graph health          Graph health diagnostic (no Memgraph needed)
     code-graph export-dot      Export graph as Graphviz DOT (no Memgraph needed)
@@ -165,7 +164,7 @@ def cli(ctx, config_path):
 @cli.command()
 @click.pass_context
 def build(ctx):
-    """Full graph build: scan → parse → resolve → ingest."""
+    """Rebuild the graph from scratch: scan → parse → resolve → wipe → ingest."""
     config = ctx.obj["config"]
     start = time.time()
 
@@ -404,12 +403,17 @@ def build(ctx):
         with writer.driver.session() as session:
             create_indexes(session)
 
+        # Wipe before writing. Every write below is a MERGE, so anything the
+        # previous build left behind would survive this one. Must happen before
+        # the first write, not per-file: clearing file B after ingesting file A
+        # would delete the A -> B.func CALLS edge we just wrote.
+        click.echo("Clearing existing graph...")
+        writer.clear_graph()
+
         # Ingest all files FIRST and flush, so the File nodes exist before any
         # linking step matches against them. nginx HANDLES edges (below) and the
-        # Go/socket/structure linkers (further down) all MATCH (f:File {...}); on
-        # a fresh `build` graph those matches silently no-op if files aren't yet
-        # flushed. (`update` re-ingests into an already-populated graph, so it
-        # never hit this — but `build` must work from empty.)
+        # Go/socket/structure linkers (further down) all MATCH (f:File {...});
+        # those matches silently no-op if files aren't yet flushed.
         for file_path, ast in all_asts.items():
             writer.ingest_file_ast(ast, resolved_imports.get(file_path, {}))
 
@@ -651,51 +655,6 @@ def schema(ctx):
     except Exception as e:
         click.echo(f"Failed to connect to Memgraph: {e}", err=True)
         click.echo("Is Memgraph running? (docker compose up -d)")
-        sys.exit(1)
-
-
-@cli.command()
-@click.pass_context
-def update(ctx):
-    """Incremental update: re-ingest only changed files."""
-    config = ctx.obj["config"]
-
-    from .change_tracker import GitChangeTracker
-    from .ingestion.writer import GraphWriter
-    from .ingestion.incremental import reingest_file
-
-    tracker = GitChangeTracker(config.repo_root)
-    changed = tracker.get_changed_files()
-    uncommitted = tracker.get_uncommitted_changes()
-    all_changed = sorted(set(changed + uncommitted))
-
-    if not all_changed:
-        click.echo("No changed files detected.")
-        return
-
-    click.echo(f"Found {len(all_changed)} changed files")
-
-    try:
-        writer = GraphWriter(
-            uri=config.memgraph.uri,
-            username=config.memgraph.username,
-            password=config.memgraph.password,
-        )
-
-        success = 0
-        for fp in all_changed:
-            if reingest_file(fp, writer):
-                click.echo(f"  ✓ {fp}")
-                success += 1
-            else:
-                click.echo(f"  ✗ {fp} (skipped)")
-
-        click.echo(f"\nUpdated {success}/{len(all_changed)} files")
-        writer.flush_all()
-        writer.close()
-
-    except Exception as e:
-        click.echo(f"Memgraph connection failed: {e}", err=True)
         sys.exit(1)
 
 

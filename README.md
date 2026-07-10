@@ -41,7 +41,7 @@ make rebuild CONFIG=config.yml
 make mcp
 ```
 
-The first `make rebuild` starts Memgraph on `localhost:7687`, runs `code-graph schema`, then `code-graph build`. Subsequent edits can use `code-graph update` (incremental) or the file watcher.
+The first `make rebuild` starts Memgraph on `localhost:7687`, runs `code-graph schema`, then `code-graph build`. Re-run `make rebuild` after editing the target codebase — `build` wipes the graph and rebuilds it from scratch.
 
 ## Make targets
 
@@ -133,12 +133,17 @@ Or via Docker. Two forms — pick based on whether your MCP client lets you set 
 }
 ```
 
-## Incremental updates
+## Keeping the graph fresh
 
 ```bash
-code-graph update -c config.yml        # Re-index files changed since last build (git diff)
-python -m watcher.file_watcher $REPO_ROOT  # Live file-watch re-indexing
+code-graph build -c config.yml         # Wipe and rebuild — the only way to index
 ```
+
+There is no incremental path. Cross-file edges (calls, requires, trigger pub/sub,
+dirty-flag signalling) are resolved against the whole corpus, so a single changed
+file can add or remove edges anywhere in the graph. Re-indexing that file alone
+cannot know which. Rebuilding is cheap enough to make the alternative not worth
+its correctness cost.
 
 ## Language support
 
@@ -183,7 +188,6 @@ python -m pytest graph_builder/tests -v
 │       ├── impact.py
 │       ├── search.py
 │       └── snippets.py
-└── watcher/                  # live-reindex file watcher
 ```
 
 ## License
