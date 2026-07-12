@@ -10,7 +10,7 @@
 #
 #   ./scripts/rebuild.sh                 # uses config.yml
 #   CONFIG=other.yml ./scripts/rebuild.sh
-#   make all                             # same thing via the Makefile
+#   make rebuild                         # same thing via the Makefile
 #
 set -euo pipefail
 
