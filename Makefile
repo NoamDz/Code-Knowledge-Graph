@@ -1,10 +1,11 @@
-.PHONY: help up down restart logs build-image build-graph schema rebuild mcp clean stats spot-check
+.PHONY: help all up down restart logs build-image build-graph schema rebuild mcp clean stats spot-check check-config
 
 CONFIG ?= config.yml
 
 help:
 	@echo "Code Knowledge Graph — make targets"
 	@echo ""
+	@echo "  make all           One-shot: install, Memgraph, schema, build, stats"
 	@echo "  make up            Start Memgraph (background)"
 	@echo "  make down          Stop all services"
 	@echo "  make restart       Restart Memgraph"
@@ -16,6 +17,17 @@ help:
 	@echo "  make mcp           Run the MCP server locally (stdio)"
 	@echo "  make stats         Print graph statistics"
 	@echo "  make clean         Stop services and delete the Memgraph volume"
+
+# One-shot full rebuild — the command to run on a fresh machine or after a pull.
+all:
+	CONFIG=$(CONFIG) bash scripts/rebuild.sh
+
+# Fail loudly if config.yml is missing: code-graph otherwise falls back to its
+# defaults (repo_root=".") and silently indexes the wrong tree.
+check-config:
+	@test -f $(CONFIG) || { \
+	  echo "ERROR: $(CONFIG) not found. Copy config_example.yml to $(CONFIG) and set repo_root."; \
+	  exit 1; }
 
 up:
 	docker compose up -d memgraph
@@ -32,11 +44,11 @@ logs:
 build-image:
 	docker compose build mcp
 
-schema:
+schema: check-config
 	code-graph -c $(CONFIG) schema
 
-build-graph:
-	code-graph -c $(CONFIG) build 
+build-graph: check-config
+	code-graph -c $(CONFIG) build
 
 rebuild: down up wait-memgraph
 	$(MAKE) schema
